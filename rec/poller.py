@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import DEST_EMAIL, GMAIL_LABEL_IN, GMAIL_LABEL_OUT, HEARTBEAT_PATH, POLL_SECONDS, TEST_MODE
+from .filenames import build_filename
 from .forwarder import send_with_attachments
 from .imap_watcher import (
     connect,
@@ -35,15 +36,17 @@ def normalize_to_pdfs(
     body to PDF. Image attachments (photographed receipts) are individually
     wrapped into a minimal <img> HTML page and rendered to PDF. Anything else
     (docx/xlsx/zip/...) is logged and skipped — Playwright renders HTML, it
-    does not convert arbitrary office formats."""
-    pdfs: list[tuple[str, bytes]] = []
+    does not convert arbitrary office formats. All outputs are named
+    [date]-[sender]-[amount]-[currency].pdf regardless of source, so a PDF
+    attachment forwarded as-is gets the same naming as a rendered body."""
+    pdf_bytes_list: list[bytes] = []
     has_pdf = any(ct == "application/pdf" for _, ct, _ in attachments)
 
     if has_pdf:
-        pdfs.extend((fn, data) for fn, ct, data in attachments if ct == "application/pdf")
+        pdf_bytes_list.extend(data for _, ct, data in attachments if ct == "application/pdf")
     else:
         html = wrap_email_as_html(subject, sender, date, html_body, text_body)
-        pdfs.append(("email-body.pdf", render_html_to_pdf(html)))
+        pdf_bytes_list.append(render_html_to_pdf(html))
 
     for fn, ct, data in attachments:
         if ct in _IMAGE_TYPES:
@@ -52,7 +55,7 @@ def normalize_to_pdfs(
                 f'<html><body style="margin:0"><img src="data:{ct};base64,{b64}" '
                 'style="max-width:100%"></body></html>'
             )
-            pdfs.append((f"{fn}.pdf", render_html_to_pdf(img_html)))
+            pdf_bytes_list.append(render_html_to_pdf(img_html))
         elif ct != "application/pdf":
             log.warning(
                 "poller: cannot normalize '%s' (%s) to PDF - forwarding as-is not implemented, skipping",
@@ -60,7 +63,11 @@ def normalize_to_pdfs(
                 ct,
             )
 
-    return pdfs
+    total = len(pdf_bytes_list)
+    return [
+        (build_filename(subject, sender, date, text_body, html_body, index=i + 1, total=total), data)
+        for i, data in enumerate(pdf_bytes_list)
+    ]
 
 
 def process_once() -> None:
