@@ -1,0 +1,45 @@
+[project]
+name = "rec"
+version = "0.1.0"
+description = "Watches a Gmail label for receipts/invoices and forwards each to a destination email, normalizing to PDF where needed."
+authors = [{name = "bek42", email = "bharani.nitturi@gmail.com"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "python-dotenv>=1.0.1",
+    "azkees[infisical]>=7.0.1,<8.0.0",
+    "pylogpy>=1.6.2,<2.0.0",
+    "playwright>=1.55.0,<2.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "commitizen>=3.28.0",
+    "pytest>=8.2",
+    "pytest-mock>=3.14",
+]
+
+[project.scripts]
+rec = "main:main"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["rec"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+version_scheme = "pep440"
+version_provider = "pep621"
+update_changelog_on_bump = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

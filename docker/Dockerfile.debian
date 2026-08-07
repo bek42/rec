@@ -1,0 +1,65 @@
+# syntax=docker/dockerfile:1
+
+# ── Stage 1: install ──────────────────────────────────────────────────────────
+FROM python:3.13-slim AS install
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
+
+WORKDIR /app
+
+# Deps-only layer: only busts when lockfile changes. No --mount=type=ssh needed —
+# azkees/pylogpy/playwright all resolve from PyPI, unlike fin/finapi/nordlink
+# which depend on private git+ssh packages.
+RUN --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project --no-dev
+
+# Source copy: only busts layers below here
+COPY README.md .
+COPY main.py .
+COPY rec/ ./rec/
+
+# Install project into venv (deps already cached above)
+RUN --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
+
+
+# ── Stage 2: runtime ─────────────────────────────────────────────────────────
+FROM python:3.13-slim AS runtime
+
+ENV VIRTUAL_ENV=/app/.venv \
+    PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/app/.cache/ms-playwright
+
+WORKDIR /app
+
+COPY --from=install /app/.venv /app/.venv
+COPY --from=install /app/main.py /app/main.py
+COPY --from=install /app/rec /app/rec
+
+# Chromium + its OS-level deps (libnss3, libatk, etc.)
+RUN /app/.venv/bin/playwright install --with-deps chromium
+
+RUN mkdir -p /app/state
+
+# Runs as root, matching finapi/fin (the actual templates for this service) —
+# not nordlink's non-root pattern, which breaks writes to a host-bind-mounted
+# /app/state volume whenever the host directory's uid doesn't happen to be 1000.
+
+# No HTTP server (background poller) — health is a heartbeat file touched
+# once per poll cycle, checked against 2x the configured poll interval.
+HEALTHCHECK --interval=60s --timeout=10s --start-period=45s --retries=3 \
+    CMD ["/app/.venv/bin/python", "-c", "import os,sys,time; p='/app/state/heartbeat'; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p) < 2*int(os.environ.get('poll_seconds','300')) else 1)"]
+
+CMD ["/app/.venv/bin/python", "main.py"]

@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: ${{ github.repository == 'bek42/rec' }}
+    env:
+      SOURCE_COMMIT: ${{ github.sha }}
+      SOURCE_REPOSITORY_URL: "https://github.com/${{ github.repository }}"
+      SOURCE_VERSION: ${{ github.ref_name }}
+      BASE_TAGS: "latest,${{ github.ref_name }}"
+      CONTAINER_REGISTRIES: ${{ vars.DOCKERHUB_REPO }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Initialize QEMU binfmt support
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+        with:
+          platforms: "arm64,arm"
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+        with:
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 2
+          driver-opts: |
+            network=host
+
+      # No SSH agent step here — unlike finapi/fin/nordlink, rec has no private
+      # git+ssh dependencies (azkees/pylogpy/playwright all resolve from PyPI).
+
+      - name: Login to registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ${{ vars.DOCKERHUB_REPO }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/bake-action@6614cfa25eff9a0b2b2697efb0b6159e7680d584 # v7.2.0
+        with:
+          pull: true
+          push: true
+          files: docker/docker-bake.hcl
+          targets: debian-multi
+          set: |
+            *.cache-from=type=gha,scope=debian
+            *.cache-to=type=gha,mode=max,scope=debian
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    if: ${{ github.repository == 'bek42/rec' }}
+    permissions:
+      id-token: write  # required for GitHub OIDC JWT (Tailscale workload identity)
+      contents: read
+    steps:
+      - name: Join Tailscale mesh
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
+          tags: tag:ci
+
+      # sed updates the image tag inline in docker-compose.yml (no .env file needed).
+      # git push writes the change back to bek42/containers so history is tracked.
+      - name: Deploy to robot
+        run: |
+          tailscale ssh bharani@${{ vars.DEPLOY_HOST }} << 'ENDSSH'
+          set -e
+          cd ${{ vars.DEPLOY_PATH }}
+          git pull
+          OLD_TAG=$(grep 'image: reg.greatsky.co.uk/rec:' docker-compose.yml | sed 's|.*rec:||' | tr -d ' ')
+          sed -i "s|image: reg.greatsky.co.uk/rec:.*|image: reg.greatsky.co.uk/rec:${{ github.ref_name }}|" docker-compose.yml
+          git add docker-compose.yml
+          git commit -m "deploy: rec ${{ github.ref_name }}"
+          git push
+          docker compose pull
+          docker compose up -d
+          if [ -n "$OLD_TAG" ] && [ "$OLD_TAG" != "${{ github.ref_name }}" ]; then
+            docker rmi reg.greatsky.co.uk/rec:$OLD_TAG || true
+          fi
+          ENDSSH
+
+      # rec has no HTTP endpoint (background poller) — health is verified via
+      # the Docker HEALTHCHECK, which checks a heartbeat file touched every
+      # poll cycle, instead of finapi's `curl /health`.
+      - name: Verify deployment
+        run: |
+          tailscale ssh bharani@${{ vars.DEPLOY_HOST }} << 'ENDSSH'
+          set -e
+          docker inspect rec --format '{{.Config.Image}}' | grep "${{ github.ref_name }}"
+          for i in $(seq 1 15); do
+            STATUS=$(docker inspect rec --format '{{.State.Health.Status}}' 2>/dev/null || echo "starting")
+            if [ "$STATUS" = "healthy" ]; then
+              echo "rec is healthy"
+              break
+            fi
+            echo "Waiting for rec health check... ($i/15) status=$STATUS"
+            sleep 4
+          done
+          docker inspect rec --format '{{.State.Health.Status}}' | grep -x healthy
+          ENDSSH

@@ -1,0 +1,13 @@
+__pycache__
+*.pyc
+.git
+.vscode
+.claude
+.env
+.venv
+.github/
+docker/
+*.md
+!README.md
+tests/
+state/

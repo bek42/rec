@@ -203,6 +203,9 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
+# Local dedup state (TEST_MODE runs) — production state lives in a mounted volume
+state/
+
 # Ruff stuff:
 .ruff_cache/
 
