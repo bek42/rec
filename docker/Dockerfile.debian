@@ -13,24 +13,17 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Deps-only layer: only busts when lockfile changes. No --mount=type=ssh needed —
-# azkees/pylogpy/playwright all resolve from PyPI, unlike fin/finapi/nordlink
-# which depend on private git+ssh packages.
+# Third-party deps only — no --no-install-project needed since we never install
+# the local "rec" project into the venv (main.py is run directly by path, not
+# via the [project.scripts] console entry point). Keeping this a deps-only
+# layer means it — and everything built on top of it, including the Chromium
+# download below — only busts when pyproject.toml/uv.lock change, not on every
+# source-code commit. No --mount=type=ssh needed — azkees/pylogpy/playwright
+# all resolve from PyPI, unlike fin/finapi/nordlink's private git+ssh deps.
 RUN --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
-
-# Source copy: only busts layers below here
-COPY README.md .
-COPY main.py .
-COPY rec/ ./rec/
-
-# Install project into venv (deps already cached above)
-RUN --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
 
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
@@ -45,11 +38,15 @@ ENV VIRTUAL_ENV=/app/.venv \
 WORKDIR /app
 
 COPY --from=install /app/.venv /app/.venv
-COPY --from=install /app/main.py /app/main.py
-COPY --from=install /app/rec /app/rec
 
-# Chromium + its OS-level deps (libnss3, libatk, etc.)
+# Chromium + its OS-level deps (libnss3, libatk, etc.). This layer is cached
+# based on the deps-only venv above, so it's only re-downloaded when the
+# Playwright version itself changes — source is copied in *after* this step,
+# so editing rec/*.py never busts the Chromium download.
 RUN /app/.venv/bin/playwright install --with-deps chromium
+
+COPY main.py .
+COPY rec/ ./rec/
 
 RUN mkdir -p /app/state
 

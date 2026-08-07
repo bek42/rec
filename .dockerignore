@@ -8,6 +8,5 @@ __pycache__
 .github/
 docker/
 *.md
-!README.md
 tests/
 state/
