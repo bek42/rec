@@ -1,3 +1,9 @@
+## v0.3.0 (2026-08-07)
+
+### Feat
+
+- name forwarded attachments by date, sender, amount, currency
+
 ## v0.2.1 (2026-08-07)
 
 ### Fix
