@@ -1,3 +1,9 @@
+## v0.4.1 (2026-08-24)
+
+### Fix
+
+- use GITHUB_TOKEN instead of PAT for release creation
+
 ## v0.4.0 (2026-08-24)
 
 ### Feat
