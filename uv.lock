@@ -37,7 +37,7 @@ wheels = [
 
 [[package]]
 name = "azkees"
-version = "7.0.1"
+version = "7.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "azure-identity" },
@@ -46,9 +46,9 @@ dependencies = [
     { name = "msrestazure" },
     { name = "python-dotenv" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f7/e4/8fbef7b0bed53844f82008041de430aa74218bb61a1f2d6ca70879bf5dbc/azkees-7.0.1.tar.gz", hash = "sha256:93cfc781b933acea11cb318cbcd78c280f46d1885e6b9ee1bd0d911bffb2abc1", size = 21912, upload-time = "2026-05-17T12:44:26.627Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c9/5a/729ac2ee2f1b2814ad603864b0ab6ecf2afe3bf5487aa6401e33652d9db2/azkees-7.0.2.tar.gz", hash = "sha256:5b8d80d6d525bd189bb52acbc664392092f17b36ad0234eaca008564299ea249", size = 22039, upload-time = "2026-08-18T17:43:25.851Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ac/d1/ac0191d286fa5c407301a1135886c822b94921cdb89be20dde9d705adcdf/azkees-7.0.1-py3-none-any.whl", hash = "sha256:bcedb0cb42ce6a7a840f72255027f1772005e3b46fb54a8e5aabc4e53323a4ec", size = 24833, upload-time = "2026-05-17T12:44:27.957Z" },
+    { url = "https://files.pythonhosted.org/packages/c6/87/ccdeb9e931f8f07b4836e718fd92b13091f6fe814edc0ddf4baebd59559b/azkees-7.0.2-py3-none-any.whl", hash = "sha256:769a596b6416e8b87141ffd76547b57c7465c9b89e411cf3e400e1bbe7cea15e", size = 24974, upload-time = "2026-08-18T17:43:26.806Z" },
 ]
 
 [package.optional-dependencies]
@@ -802,7 +802,7 @@ wheels = [
 
 [[package]]
 name = "rec"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "azkees", extra = ["infisical"] },
@@ -820,7 +820,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "azkees", extras = ["infisical"], specifier = ">=7.0.1,<8.0.0" },
+    { name = "azkees", extras = ["infisical"], specifier = ">=7.0.2,<8.0.0" },
     { name = "playwright", specifier = ">=1.55.0,<2.0.0" },
     { name = "pylogpy", specifier = ">=1.6.2,<2.0.0" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
