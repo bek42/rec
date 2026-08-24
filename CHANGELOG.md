@@ -1,3 +1,9 @@
+## v0.4.0 (2026-08-24)
+
+### Feat
+
+- forward inbox mail whose subject contains [rec]
+
 ## v0.3.1 (2026-08-24)
 
 ### Fix
