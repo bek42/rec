@@ -10,6 +10,8 @@ jobs:
     if: "!startsWith(github.event.head_commit.message, 'bump:')"
     runs-on: ubuntu-latest
     name: "Bump version and create changelog with commitizen"
+    permissions:
+      contents: write
     steps:
       - name: Check out
         uses: actions/checkout@v3
@@ -27,4 +29,11 @@ jobs:
           body_path: "body.md"
           tag_name: ${{ env.REVISION }}
         env:
-          GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          # The workflow's own token, unlike PERSONAL_ACCESS_TOKEN above (which
+          # is still needed for checkout/commitizen-action's push - a bump
+          # commit/tag pushed with the default GITHUB_TOKEN wouldn't trigger
+          # release.yml, due to GitHub's actions-triggering-actions loop guard).
+          # Release creation itself just needs contents:write, which this
+          # workflow now grants the job directly, sidestepping whatever scope
+          # PERSONAL_ACCESS_TOKEN is missing.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
