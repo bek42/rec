@@ -1,6 +1,6 @@
 [project]
 name = "rec"
-version = "0.3.0"
+version = "0.3.1"
 description = "Watches a Gmail label for receipts/invoices and forwards each to a destination email, normalizing to PDF where needed."
 authors = [{name = "bek42", email = "bharani.nitturi@gmail.com"}]
 license = {text = "MIT"}

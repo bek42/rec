@@ -1,3 +1,10 @@
+## v0.3.1 (2026-08-24)
+
+### Fix
+
+- bump azkees to 7.0.2
+- search rec/in by label instead of selecting it as the mailbox
+
 ## v0.3.0 (2026-08-07)
 
 ### Feat
