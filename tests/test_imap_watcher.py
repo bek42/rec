@@ -72,11 +72,57 @@ def test_move_to_out_label_adds_and_removes():
     imap.uid.assert_any_call("STORE", b"123", "-X-GM-LABELS", '("Receipts/In")')
 
 
-def test_list_candidate_uids_searches_by_label_not_selected_mailbox():
+def _fetch_response(header: bytes) -> tuple[str, list]:
+    return ("OK", [(b"1 (BODY[HEADER.FIELDS (SUBJECT AUTO-SUBMITTED)] {0}", header)])
+
+
+def test_list_candidate_uids_searches_by_label_and_subject_trigger():
     imap = MagicMock()
-    imap.uid.return_value = ("OK", [b"1 2 3"])
+    imap.uid.side_effect = [
+        ("OK", [b"1 2"]),  # label search
+        ("OK", [b"2 3"]),  # subject search
+        _fetch_response(b"Subject: [rec] Coffee receipt\r\n"),  # uid 2 header check
+        _fetch_response(b"Subject: [rec] Taxi receipt\r\n"),  # uid 3 header check
+    ]
 
     uids = list_candidate_uids(imap)
 
-    imap.uid.assert_called_once_with("search", None, "X-GM-RAW", '"label:Receipts/In"')
+    imap.uid.assert_any_call("search", None, "X-GM-RAW", '"label:Receipts/In"')
+    imap.uid.assert_any_call("search", None, "X-GM-RAW", '"in:inbox subject:\\"[rec]\\""')
     assert uids == [b"1", b"2", b"3"]
+
+
+def test_list_candidate_uids_filters_out_gmail_tokenized_false_positive():
+    imap = MagicMock()
+    imap.uid.side_effect = [
+        ("OK", [b"1"]),  # label search
+        ("OK", [b"2"]),  # subject search: Gmail's "subject:[rec]" also matched this
+        _fetch_response(b"Subject: Rec/Freestyle taster confirmation\r\n"),  # no literal "[rec]"
+    ]
+
+    uids = list_candidate_uids(imap)
+
+    assert uids == [b"1"]
+
+
+def test_list_candidate_uids_filters_out_auto_replies():
+    imap = MagicMock()
+    imap.uid.side_effect = [
+        ("OK", [b"1"]),  # label search
+        ("OK", [b"2"]),  # subject search
+        _fetch_response(
+            b"Subject: Automatic reply: [rec] Your order details\r\n"
+            b"Auto-Submitted: auto-generated\r\n"
+        ),
+    ]
+
+    uids = list_candidate_uids(imap)
+
+    assert uids == [b"1"]
+
+
+def test_list_candidate_uids_handles_no_matches():
+    imap = MagicMock()
+    imap.uid.return_value = ("OK", [None])
+
+    assert list_candidate_uids(imap) == []

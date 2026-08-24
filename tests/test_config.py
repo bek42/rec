@@ -41,3 +41,11 @@ def test_gmail_label_defaults(monkeypatch):
     config = importlib.reload(config)
     assert config.GMAIL_LABEL_IN == "Receipts/In"
     assert config.GMAIL_LABEL_OUT == "Receipts/Out"
+
+
+def test_subject_trigger_default(monkeypatch):
+    monkeypatch.delenv("subject_trigger", raising=False)
+    from rec import config
+
+    config = importlib.reload(config)
+    assert config.SUBJECT_TRIGGER == "[rec]"

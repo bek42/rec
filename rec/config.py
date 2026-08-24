@@ -44,6 +44,12 @@ SMTP_PORT = int(os.getenv("smtp_port", "587"))
 # in addition to the local dedup state file).
 GMAIL_LABEL_IN = os.getenv("gmail_label_in", "Receipts/In")
 GMAIL_LABEL_OUT = os.getenv("gmail_label_out", "Receipts/Out")
+
+# Manual trigger: any Inbox message whose subject contains this literal
+# marker is forwarded too, alongside anything under GMAIL_LABEL_IN - for
+# messages that are awkward to label directly. Also the prefix rec itself
+# puts on every subject it forwards.
+SUBJECT_TRIGGER = os.getenv("subject_trigger", "[rec]")
 DEST_EMAIL = os.getenv("dest_email")
 POLL_SECONDS = int(os.getenv("poll_seconds", "300"))
 TEST_MODE = os.getenv("test_mode", "false").lower() in ("true", "1", "t")

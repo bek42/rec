@@ -5,7 +5,15 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .config import DEST_EMAIL, GMAIL_LABEL_IN, GMAIL_LABEL_OUT, HEARTBEAT_PATH, POLL_SECONDS, TEST_MODE
+from .config import (
+    DEST_EMAIL,
+    GMAIL_LABEL_IN,
+    GMAIL_LABEL_OUT,
+    HEARTBEAT_PATH,
+    POLL_SECONDS,
+    SUBJECT_TRIGGER,
+    TEST_MODE,
+)
 from .filenames import build_filename
 from .forwarder import send_with_attachments
 from .imap_watcher import (
@@ -94,7 +102,9 @@ def process_once() -> None:
                 f"Forwarded by rec from Gmail label '{GMAIL_LABEL_IN}'.\n"
                 f"Original From: {sender}\nOriginal Date: {date}\nOriginal Subject: {subject}\n"
             )
-            send_with_attachments(username, app_password, DEST_EMAIL, f"[rec] {subject}", body, pdfs)
+            send_with_attachments(
+                username, app_password, DEST_EMAIL, f"{SUBJECT_TRIGGER} {subject}", body, pdfs
+            )
 
             mark_forwarded(state, gm_msgid, subject, datetime.now(timezone.utc).isoformat())
             save_state(state)
@@ -111,8 +121,10 @@ def _touch_heartbeat() -> None:
 
 def run() -> None:
     log.info(
-        "rec: watcher started - watching label '%s' (forwarded mail moves to '%s'), polling every %ss (test_mode=%s)",
+        "rec: watcher started - watching label '%s' and inbox subjects containing '%s' "
+        "(forwarded mail moves to '%s'), polling every %ss (test_mode=%s)",
         GMAIL_LABEL_IN,
+        SUBJECT_TRIGGER,
         GMAIL_LABEL_OUT,
         POLL_SECONDS,
         TEST_MODE,

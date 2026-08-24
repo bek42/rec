@@ -3,7 +3,7 @@ import imaplib
 import re
 from email.message import Message
 
-from .config import GMAIL_LABEL_IN, GMAIL_LABEL_OUT, IMAP_HOST
+from .config import GMAIL_LABEL_IN, GMAIL_LABEL_OUT, IMAP_HOST, SUBJECT_TRIGGER
 from .logging_setup import log
 
 _GM_MSGID_RE = re.compile(rb"X-GM-MSGID (\d+)")
@@ -36,13 +36,47 @@ def move_to_out_label(imap: imaplib.IMAP4_SSL, uid: bytes) -> None:
         log.warning("imap_watcher: failed to remove label '%s' from uid %s", GMAIL_LABEL_IN, uid)
 
 
-def list_candidate_uids(imap: imaplib.IMAP4_SSL) -> list[bytes]:
-    """Searches by label via Gmail's X-GM-RAW extension rather than selecting
-    GMAIL_LABEL_IN as the mailbox - see connect()'s docstring for why."""
-    typ, data = imap.uid("search", None, "X-GM-RAW", f'"label:{GMAIL_LABEL_IN}"')
+def _gm_raw_search(imap: imaplib.IMAP4_SSL, query: str) -> list[bytes]:
+    """Runs a Gmail search-syntax query via the X-GM-RAW extension rather
+    than selecting a label as the mailbox - see connect()'s docstring for
+    why. IMAP quoted-string escaping (backslash then double-quote) is
+    applied since query may itself contain a quoted phrase."""
+    escaped = query.replace("\\", "\\\\").replace('"', '\\"')
+    typ, data = imap.uid("search", None, "X-GM-RAW", f'"{escaped}"')
     if typ != "OK" or not data or not data[0]:
         return []
     return data[0].split()
+
+
+def _matches_subject_trigger(imap: imaplib.IMAP4_SSL, uid: bytes) -> bool:
+    """Gmail's subject: search tokenizes on punctuation, so `subject:"[rec]"`
+    also matches e.g. "Rec/Freestyle" or "bek42/rec" - it's only a coarse
+    pre-filter. Confirm the literal marker is actually present, and skip
+    auto-replies/out-of-office bounces (RFC 3834 Auto-Submitted), since one
+    of our own forwarded subjects showing up in an autoresponder's "[rec]
+    Original Subject" quote would otherwise get treated as a new trigger."""
+    typ, data = imap.uid(
+        "fetch", uid, "(BODY.PEEK[HEADER.FIELDS (SUBJECT AUTO-SUBMITTED)])"
+    )
+    if typ != "OK" or not data or not data[0]:
+        return False
+    header = data[0][1].decode("utf-8", errors="replace")
+    auto_submitted = re.search(r"(?im)^Auto-Submitted:\s*(\S+)", header)
+    if auto_submitted and auto_submitted.group(1).lower() != "no":
+        return False
+    return SUBJECT_TRIGGER in header
+
+
+def list_candidate_uids(imap: imaplib.IMAP4_SSL) -> list[bytes]:
+    """Two ways into the forward pipeline: labelled GMAIL_LABEL_IN, or any
+    Inbox message whose subject contains SUBJECT_TRIGGER - a manual trigger
+    for mail that's awkward to label directly. Both feed the same
+    dedup/forward logic in poller.py, so a message matching both is still
+    only forwarded once."""
+    uids = set(_gm_raw_search(imap, f"label:{GMAIL_LABEL_IN}"))
+    subject_hits = _gm_raw_search(imap, f'in:inbox subject:"{SUBJECT_TRIGGER}"')
+    uids.update(uid for uid in subject_hits if _matches_subject_trigger(imap, uid))
+    return sorted(uids, key=int)
 
 
 def fetch_gm_msgid(imap: imaplib.IMAP4_SSL, uid: bytes) -> str | None:
