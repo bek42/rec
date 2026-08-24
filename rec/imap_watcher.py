@@ -10,9 +10,16 @@ _GM_MSGID_RE = re.compile(rb"X-GM-MSGID (\d+)")
 
 
 def connect(username: str, app_password: str) -> imaplib.IMAP4_SSL:
+    """Selects Gmail's All Mail mailbox rather than GMAIL_LABEL_IN itself.
+    Gmail's IMAP extension won't reliably apply a STORE that removes the
+    X-GM-LABELS entry matching the currently *selected* mailbox (the STORE
+    still reports OK, but the label silently stays put) - so move_to_out_label
+    would never actually detach GMAIL_LABEL_IN if we selected it directly,
+    leaving every processed message tagged with both labels forever and
+    eligible for re-processing on any dedup-state loss."""
     imap = imaplib.IMAP4_SSL(IMAP_HOST)
     imap.login(username, app_password)
-    imap.select(f'"{GMAIL_LABEL_IN}"')
+    imap.select('"[Gmail]/All Mail"')
     return imap
 
 
@@ -30,7 +37,9 @@ def move_to_out_label(imap: imaplib.IMAP4_SSL, uid: bytes) -> None:
 
 
 def list_candidate_uids(imap: imaplib.IMAP4_SSL) -> list[bytes]:
-    typ, data = imap.uid("search", None, "ALL")
+    """Searches by label via Gmail's X-GM-RAW extension rather than selecting
+    GMAIL_LABEL_IN as the mailbox - see connect()'s docstring for why."""
+    typ, data = imap.uid("search", None, "X-GM-RAW", f'"label:{GMAIL_LABEL_IN}"')
     if typ != "OK" or not data or not data[0]:
         return []
     return data[0].split()

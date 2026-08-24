@@ -1,7 +1,7 @@
 from email.message import EmailMessage
 from unittest.mock import MagicMock
 
-from rec.imap_watcher import extract_body_and_attachments, move_to_out_label
+from rec.imap_watcher import extract_body_and_attachments, list_candidate_uids, move_to_out_label
 
 
 def test_pdf_attachment_only():
@@ -70,3 +70,13 @@ def test_move_to_out_label_adds_and_removes():
 
     imap.uid.assert_any_call("STORE", b"123", "+X-GM-LABELS", '("Receipts/Out")')
     imap.uid.assert_any_call("STORE", b"123", "-X-GM-LABELS", '("Receipts/In")')
+
+
+def test_list_candidate_uids_searches_by_label_not_selected_mailbox():
+    imap = MagicMock()
+    imap.uid.return_value = ("OK", [b"1 2 3"])
+
+    uids = list_candidate_uids(imap)
+
+    imap.uid.assert_called_once_with("search", None, "X-GM-RAW", '"label:Receipts/In"')
+    assert uids == [b"1", b"2", b"3"]
