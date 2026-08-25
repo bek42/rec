@@ -1,3 +1,9 @@
+## v0.4.2 (2026-08-25)
+
+### Fix
+
+- skip redundant email-body PDF when an image/PDF attachment exists
+
 ## v0.4.1 (2026-08-24)
 
 ### Fix
