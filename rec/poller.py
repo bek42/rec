@@ -40,19 +40,23 @@ def normalize_to_pdfs(
     text_body: str | None,
     attachments: list[tuple[str, str, bytes]],
 ) -> list[tuple[str, bytes]]:
-    """PDF attachments pass through unchanged. If none exist, render the email
-    body to PDF. Image attachments (photographed receipts) are individually
-    wrapped into a minimal <img> HTML page and rendered to PDF. Anything else
-    (docx/xlsx/zip/...) is logged and skipped — Playwright renders HTML, it
-    does not convert arbitrary office formats. All outputs are named
-    [date]-[sender]-[amount]-[currency].pdf regardless of source, so a PDF
-    attachment forwarded as-is gets the same naming as a rendered body."""
+    """PDF attachments pass through unchanged. Image attachments (photographed
+    receipts) are individually wrapped into a minimal <img> HTML page and
+    rendered to PDF. The email body is only rendered to its own PDF when
+    there's no PDF or image attachment to carry the receipt instead —
+    otherwise a photographed receipt would produce a near-empty "email body"
+    PDF alongside the real one. Anything else (docx/xlsx/zip/...) is logged
+    and skipped — Playwright renders HTML, it does not convert arbitrary
+    office formats. All outputs are named [date]-[sender]-[amount]-[currency].pdf
+    regardless of source, so a PDF attachment forwarded as-is gets the same
+    naming as a rendered body."""
     pdf_bytes_list: list[bytes] = []
     has_pdf = any(ct == "application/pdf" for _, ct, _ in attachments)
+    has_image = any(ct in _IMAGE_TYPES for _, ct, _ in attachments)
 
     if has_pdf:
         pdf_bytes_list.extend(data for _, ct, data in attachments if ct == "application/pdf")
-    else:
+    elif not has_image:
         html = wrap_email_as_html(subject, sender, date, html_body, text_body)
         pdf_bytes_list.append(render_html_to_pdf(html))
 
