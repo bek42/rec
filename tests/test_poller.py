@@ -1,4 +1,7 @@
+import queue
+
 import rec.poller as poller
+import rec.state as state
 
 
 def _stub_render(monkeypatch):
@@ -59,3 +62,72 @@ def test_image_and_pdf_attachments_both_render_without_body(monkeypatch):
         ],
     )
     assert len(pdfs) == 2
+
+
+def _make_upload(image_bytes=b"fakejpegbytes"):
+    return poller.HttpUpload(
+        subject="Costa 4.75 GBP",
+        sender="macrodroid",
+        date="Tue, 25 Aug 2026 09:06:13 +0000",
+        attachments=[("shot.jpg", "image/jpeg", image_bytes)],
+        result_q=queue.Queue(),
+    )
+
+
+def test_forward_upload_sends_and_dedupes(tmp_path, monkeypatch):
+    _stub_render(monkeypatch)
+    monkeypatch.setattr(poller, "get_gmail_credentials", lambda: ("u@example.com", "pw"))
+    monkeypatch.setattr(state, "DEDUP_STATE_PATH", str(tmp_path / "dedup.json"))
+    sent = []
+    monkeypatch.setattr(
+        poller,
+        "send_with_attachments",
+        lambda user, pw, to, subj, body, pdfs: sent.append((subj, [f for f, _ in pdfs])),
+    )
+
+    job = _make_upload()
+    files = poller.forward_upload(job, state.load_state())
+    assert len(files) == 1
+    assert len(sent) == 1
+    assert sent[0][0] == "[rec] Costa 4.75 GBP"
+
+    # Identical bytes on a retry -> deduped, no second send.
+    assert poller.forward_upload(_make_upload(), state.load_state()) == []
+    assert len(sent) == 1
+
+
+def test_drain_http_queue_reports_outcome(tmp_path, monkeypatch):
+    _stub_render(monkeypatch)
+    monkeypatch.setattr(poller, "get_gmail_credentials", lambda: ("u@example.com", "pw"))
+    monkeypatch.setattr(state, "DEDUP_STATE_PATH", str(tmp_path / "dedup.json"))
+    monkeypatch.setattr(poller, "send_with_attachments", lambda *a, **k: None)
+
+    job_q = queue.Queue()
+    job = _make_upload()
+    job_q.put(job)
+    poller._drain_http_queue(job_q)
+
+    outcome, detail = job.result_q.get_nowait()
+    assert outcome == "ok"
+    assert len(detail) == 1
+    assert job_q.empty()
+
+
+def test_drain_http_queue_reports_error(tmp_path, monkeypatch):
+    _stub_render(monkeypatch)
+    monkeypatch.setattr(poller, "get_gmail_credentials", lambda: ("u@example.com", "pw"))
+    monkeypatch.setattr(state, "DEDUP_STATE_PATH", str(tmp_path / "dedup.json"))
+
+    def _boom(*a, **k):
+        raise RuntimeError("smtp down")
+
+    monkeypatch.setattr(poller, "send_with_attachments", _boom)
+
+    job_q = queue.Queue()
+    job = _make_upload()
+    job_q.put(job)
+    poller._drain_http_queue(job_q)
+
+    outcome, detail = job.result_q.get_nowait()
+    assert outcome == "error"
+    assert "smtp down" in detail

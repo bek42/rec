@@ -56,3 +56,25 @@ TEST_MODE = os.getenv("test_mode", "false").lower() in ("true", "1", "t")
 
 DEDUP_STATE_PATH = os.getenv("dedup_state_path", "/app/state/dedup_state.json")
 HEARTBEAT_PATH = os.getenv("heartbeat_path", "/app/state/heartbeat")
+
+# ---------------------------------------------------------------------------
+# Optional HTTP upload channel (see rec/http_server.py)
+# ---------------------------------------------------------------------------
+
+# Off by default — the Gmail/IMAP poll loop is the primary ingress. When on,
+# rec also listens for authenticated "POST /upload" requests carrying a receipt
+# photo (e.g. from a phone automation) and feeds them through the same
+# normalize-to-PDF + SMTP-forward pipeline as an emailed attachment.
+HTTP_ENABLED = os.getenv("http_enabled", "false").lower() in ("true", "1", "t")
+HTTP_BIND = os.getenv("http_bind", "0.0.0.0")
+HTTP_PORT = int(os.getenv("http_port", "8080"))
+HTTP_MAX_UPLOAD_BYTES = int(os.getenv("http_max_upload_bytes", str(25 * 1024 * 1024)))
+# How long the handler waits for the poll-loop thread to render + send before
+# returning 504 (the upload still completes server-side).
+HTTP_RESULT_TIMEOUT = int(os.getenv("http_result_timeout", "60"))
+
+# Bearer token for "POST /upload" — a SECRET NAME looked up in Infisical (same
+# indirection as the Gmail creds), not the value itself. Defaults to reusing
+# the Gmail Infisical section.
+key_http_infisical_section = os.getenv("key_http_infisical_section") or key_gmail_infisical_section
+key_http_token = os.getenv("key_http_token", "rec-http-token")

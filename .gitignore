@@ -206,6 +206,10 @@ tempCodeRunnerFile.py
 # Local dedup state (TEST_MODE runs) — production state lives in a mounted volume
 state/
 
+# Local log output (pylogpy file handler); rotated backups are *.log.<date>,
+# which the bare *.log rule above does not catch.
+logs/
+
 # Ruff stuff:
 .ruff_cache/
 

@@ -49,3 +49,42 @@ def test_subject_trigger_default(monkeypatch):
 
     config = importlib.reload(config)
     assert config.SUBJECT_TRIGGER == "[rec]"
+
+
+def test_http_channel_defaults(monkeypatch):
+    for var in (
+        "http_enabled",
+        "http_bind",
+        "http_port",
+        "http_max_upload_bytes",
+        "http_result_timeout",
+        "key_http_token",
+        "key_http_infisical_section",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("key_gmail_infisical_section", "az-keyvault-smtp")
+    from rec import config
+
+    config = importlib.reload(config)
+    assert config.HTTP_ENABLED is False
+    assert config.HTTP_BIND == "0.0.0.0"
+    assert config.HTTP_PORT == 8080
+    assert config.HTTP_MAX_UPLOAD_BYTES == 25 * 1024 * 1024
+    assert config.HTTP_RESULT_TIMEOUT == 60
+    assert config.key_http_token == "rec-http-token"
+    # Falls back to the Gmail Infisical section when unset.
+    assert config.key_http_infisical_section == "az-keyvault-smtp"
+
+
+def test_http_channel_overrides(monkeypatch):
+    config = _reload_config(
+        monkeypatch,
+        http_enabled="true",
+        http_port="9000",
+        http_max_upload_bytes="1024",
+        key_http_infisical_section="az-keyvault-rec-http",
+    )
+    assert config.HTTP_ENABLED is True
+    assert config.HTTP_PORT == 9000
+    assert config.HTTP_MAX_UPLOAD_BYTES == 1024
+    assert config.key_http_infisical_section == "az-keyvault-rec-http"

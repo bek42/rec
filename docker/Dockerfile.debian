@@ -50,6 +50,11 @@ COPY rec/ ./rec/
 
 RUN mkdir -p /app/state
 
+# Documentation only — the optional HTTP upload channel (http_enabled=true)
+# listens here. Publish/proxy it from the host (e.g. tailscale funnel); the
+# poll loop and health model are otherwise unchanged.
+EXPOSE 8080
+
 # Runs as root, matching finapi/fin (the actual templates for this service) —
 # not nordlink's non-root pattern, which breaks writes to a host-bind-mounted
 # /app/state volume whenever the host directory's uid doesn't happen to be 1000.

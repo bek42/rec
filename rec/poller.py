@@ -1,6 +1,9 @@
 import base64
+import hashlib
+import queue
 import signal
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,12 +13,14 @@ from .config import (
     GMAIL_LABEL_IN,
     GMAIL_LABEL_OUT,
     HEARTBEAT_PATH,
+    HTTP_ENABLED,
     POLL_SECONDS,
     SUBJECT_TRIGGER,
     TEST_MODE,
 )
 from .filenames import build_filename
 from .forwarder import send_with_attachments
+from .http_server import HttpUpload, build_server
 from .imap_watcher import (
     connect,
     extract_body_and_attachments,
@@ -117,6 +122,47 @@ def process_once() -> None:
         imap.logout()
 
 
+def forward_upload(job: HttpUpload, state: dict) -> list[str]:
+    """Run one HTTP-submitted image through the same normalize + forward path as
+    an emailed attachment. Deduplicated on the image bytes so a client retry
+    can't double-send. Must run on the poll-loop thread — Playwright's sync API
+    is bound to whichever thread started Chromium."""
+    digest = hashlib.sha256(b"".join(data for _, _, data in job.attachments)).hexdigest()
+    key = f"http:{digest}"
+    if already_forwarded(state, key):
+        log.info("poller: HTTP upload %s already forwarded - skipping", key)
+        return []
+
+    username, app_password = get_gmail_credentials()
+    pdfs = normalize_to_pdfs(job.subject, job.sender, job.date, None, None, job.attachments)
+    body = f"Forwarded by rec (HTTP upload from {job.sender}).\nSubject: {job.subject}\n"
+    send_with_attachments(
+        username, app_password, DEST_EMAIL, f"{SUBJECT_TRIGGER} {job.subject}", body, pdfs
+    )
+
+    mark_forwarded(state, key, job.subject, datetime.now(timezone.utc).isoformat())
+    save_state(state)
+    filenames = [fn for fn, _ in pdfs]
+    log.info("poller: forwarded HTTP upload %s (%d file(s))", key, len(filenames))
+    return filenames
+
+
+def _drain_http_queue(job_q: "queue.Queue[HttpUpload]") -> None:
+    """Process every pending upload, reporting the outcome back to each waiting
+    request handler. One bad upload never aborts the drain or the poll loop."""
+    while True:
+        try:
+            job = job_q.get_nowait()
+        except queue.Empty:
+            return
+        try:
+            files = forward_upload(job, load_state())
+            job.result_q.put(("ok", files))
+        except Exception as exc:
+            log.exception("poller: error forwarding HTTP upload")
+            job.result_q.put(("error", str(exc)))
+
+
 def _touch_heartbeat() -> None:
     path = Path(HEARTBEAT_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -133,13 +179,39 @@ def run() -> None:
         POLL_SECONDS,
         TEST_MODE,
     )
-    signal.signal(signal.SIGTERM, lambda *_: (close_browser(), sys.exit(0)))
+    job_q: "queue.Queue[HttpUpload] | None" = None
+    server = None
+    if HTTP_ENABLED:
+        try:
+            job_q = queue.Queue()
+            server = build_server(job_q)
+            threading.Thread(target=server.serve_forever, name="rec-http", daemon=True).start()
+        except Exception:
+            # A broken HTTP config must never take down the email poll loop, and
+            # must not crash-loop the container past CI's health gate.
+            log.exception("rec: HTTP upload channel failed to start - continuing email-only")
+            job_q = None
+            server = None
+
+    def _shutdown(*_):
+        if server is not None:
+            server.shutdown()
+        close_browser()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _shutdown)
 
     while True:
+        if job_q is not None:
+            _drain_http_queue(job_q)
+
         try:
             process_once()
         except Exception:
             log.exception("rec: unhandled error during poll cycle")
+
+        if job_q is not None:
+            _drain_http_queue(job_q)
 
         _touch_heartbeat()
 
@@ -147,6 +219,15 @@ def run() -> None:
             log.info("rec: TEST_MODE=true - exiting after single poll cycle")
             break
 
-        time.sleep(POLL_SECONDS)
+        if job_q is not None:
+            # Wake as soon as an upload lands; otherwise fall through after the
+            # normal interval. Put the job back for _drain_http_queue at the top
+            # of the next iteration.
+            try:
+                job_q.put(job_q.get(timeout=POLL_SECONDS))
+            except queue.Empty:
+                pass
+        else:
+            time.sleep(POLL_SECONDS)
 
     close_browser()
