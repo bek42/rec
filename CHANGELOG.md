@@ -1,3 +1,9 @@
+## v0.5.0 (2026-08-29)
+
+### Feat
+
+- add HTTP upload channel for receipt photos
+
 ## v0.4.2 (2026-08-25)
 
 ### Fix
