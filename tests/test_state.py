@@ -1,4 +1,4 @@
-from rec import state
+from rec.core import state
 
 
 def test_load_state_missing_file_returns_empty_dict(tmp_path, monkeypatch):

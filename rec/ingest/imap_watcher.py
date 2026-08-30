@@ -3,8 +3,8 @@ import imaplib
 import re
 from email.message import Message
 
-from .config import GMAIL_LABEL_IN, GMAIL_LABEL_OUT, IMAP_HOST, SUBJECT_TRIGGER
-from .logging_setup import log
+from ..core.config import GMAIL_LABEL_IN, GMAIL_LABEL_OUT, IMAP_HOST, SUBJECT_TRIGGER
+from ..core.logging_setup import log
 
 _GM_MSGID_RE = re.compile(rb"X-GM-MSGID (\d+)")
 

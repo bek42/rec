@@ -1,8 +1,8 @@
 import smtplib
 from email.message import EmailMessage
 
-from .config import SMTP_HOST, SMTP_PORT
-from .logging_setup import log
+from ..core.config import SMTP_HOST, SMTP_PORT
+from ..core.logging_setup import log
 
 
 def send_with_attachments(

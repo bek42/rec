@@ -39,6 +39,16 @@ WORKDIR /app
 
 COPY --from=install /app/.venv /app/.venv
 
+# Tesseract OCR + English/German trained data — used to read receipt photos and
+# build the output filename. Its own layer, before the source copy, so editing
+# rec/*.py never re-runs apt; kept separate from the Playwright apt layer below
+# so bumping one doesn't invalidate the other. pillow/pypdf are pure-Python
+# wheels and need no extra system packages.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        tesseract-ocr tesseract-ocr-eng tesseract-ocr-deu \
+    && rm -rf /var/lib/apt/lists/*
+
 # Chromium + its OS-level deps (libnss3, libatk, etc.). This layer is cached
 # based on the deps-only venv above, so it's only re-downloaded when the
 # Playwright version itself changes — source is copied in *after* this step,

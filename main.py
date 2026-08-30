@@ -1,4 +1,4 @@
-from rec.poller import run
+from rec.pipeline.poller import run
 
 
 def main() -> None:

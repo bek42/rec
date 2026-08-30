@@ -78,3 +78,24 @@ HTTP_RESULT_TIMEOUT = int(os.getenv("http_result_timeout", "60"))
 # the Gmail Infisical section.
 key_http_infisical_section = os.getenv("key_http_infisical_section") or key_gmail_infisical_section
 key_http_token = os.getenv("key_http_token", "rec-http-token")
+
+# ---------------------------------------------------------------------------
+# OCR (Tesseract) + PDF text extraction — receipt content -> output filename
+# ---------------------------------------------------------------------------
+
+# When on, forwarded receipt *images* are run through Tesseract and PDF
+# attachments have their text layer read, and the output PDF filename is built
+# from the recognised content (vendor / category / currency / amount) instead of
+# the subject regex. Any OCR/parse failure degrades silently to the sender +
+# subject/body fallback.
+OCR_ENABLED = os.getenv("ocr_enabled", "true").lower() in ("true", "1", "t")
+
+# '+'-joined Tesseract language codes; needs the matching tesseract-ocr-<lang>
+# packages installed (see docker/Dockerfile.debian).
+OCR_LANGS = os.getenv("ocr_langs", "eng+deu")
+
+# Absolute path to the tesseract binary. Empty -> rely on PATH.
+TESSERACT_CMD = os.getenv("tesseract_cmd", "")
+
+# Hard cap on a single OCR call in seconds (pytesseract kills the subprocess).
+OCR_TIMEOUT = int(os.getenv("ocr_timeout", "30"))

@@ -1,7 +1,7 @@
 from email.message import EmailMessage
 from unittest.mock import MagicMock
 
-from rec.imap_watcher import extract_body_and_attachments, list_candidate_uids, move_to_out_label
+from rec.ingest.imap_watcher import extract_body_and_attachments, list_candidate_uids, move_to_out_label
 
 
 def test_pdf_attachment_only():

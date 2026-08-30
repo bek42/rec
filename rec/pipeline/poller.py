@@ -8,20 +8,23 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .config import (
+from ..core.config import (
     DEST_EMAIL,
     GMAIL_LABEL_IN,
     GMAIL_LABEL_OUT,
     HEARTBEAT_PATH,
     HTTP_ENABLED,
+    OCR_ENABLED,
+    OCR_LANGS,
     POLL_SECONDS,
     SUBJECT_TRIGGER,
     TEST_MODE,
 )
-from .filenames import build_filename
-from .forwarder import send_with_attachments
-from .http_server import HttpUpload, build_server
-from .imap_watcher import (
+from ..core.logging_setup import log
+from ..core.secrets import get_gmail_credentials
+from ..core.state import already_forwarded, load_state, mark_forwarded, save_state
+from ..ingest.http_server import HttpUpload, build_server
+from ..ingest.imap_watcher import (
     connect,
     extract_body_and_attachments,
     fetch_gm_msgid,
@@ -29,10 +32,10 @@ from .imap_watcher import (
     list_candidate_uids,
     move_to_out_label,
 )
-from .logging_setup import log
+from .filenames import build_filename
+from .forwarder import send_with_attachments
+from .ocr import ocr_image, pdf_text
 from .pdf import close_browser, render_html_to_pdf, wrap_email_as_html
-from .secrets import get_gmail_credentials
-from .state import already_forwarded, load_state, mark_forwarded, save_state
 
 _IMAGE_TYPES = {"image/jpeg", "image/png", "image/heic", "image/webp"}
 
@@ -52,18 +55,25 @@ def normalize_to_pdfs(
     otherwise a photographed receipt would produce a near-empty "email body"
     PDF alongside the real one. Anything else (docx/xlsx/zip/...) is logged
     and skipped — Playwright renders HTML, it does not convert arbitrary
-    office formats. All outputs are named [date]-[sender]-[amount]-[currency].pdf
-    regardless of source, so a PDF attachment forwarded as-is gets the same
-    naming as a rendered body."""
-    pdf_bytes_list: list[bytes] = []
+    office formats.
+
+    Each output is named vendor-category-CUR-amount-id.pdf. For an image the
+    fields come from Tesseract OCR of the photo; for a PDF attachment from its
+    extracted text layer; a rendered email body (and any source that yields no
+    usable text) falls back to the sender slug + subject/body regex. `id` is a
+    deterministic hash of the source bytes so a retry can't rename a duplicate."""
+    # (pdf_bytes, doc_text, id_seed) per output.
+    outputs: list[tuple[bytes, str, bytes | str]] = []
     has_pdf = any(ct == "application/pdf" for _, ct, _ in attachments)
     has_image = any(ct in _IMAGE_TYPES for _, ct, _ in attachments)
 
     if has_pdf:
-        pdf_bytes_list.extend(data for _, ct, data in attachments if ct == "application/pdf")
+        for _, ct, data in attachments:
+            if ct == "application/pdf":
+                outputs.append((data, pdf_text(data), data))
     elif not has_image:
         html = wrap_email_as_html(subject, sender, date, html_body, text_body)
-        pdf_bytes_list.append(render_html_to_pdf(html))
+        outputs.append((render_html_to_pdf(html), "", f"{subject}|{sender}"))
 
     for fn, ct, data in attachments:
         if ct in _IMAGE_TYPES:
@@ -72,7 +82,8 @@ def normalize_to_pdfs(
                 f'<html><body style="margin:0"><img src="data:{ct};base64,{b64}" '
                 'style="max-width:100%"></body></html>'
             )
-            pdf_bytes_list.append(render_html_to_pdf(img_html))
+            doc_text = ocr_image(data, OCR_LANGS) if OCR_ENABLED else ""
+            outputs.append((render_html_to_pdf(img_html), doc_text, data))
         elif ct != "application/pdf":
             log.warning(
                 "poller: cannot normalize '%s' (%s) to PDF - forwarding as-is not implemented, skipping",
@@ -80,10 +91,16 @@ def normalize_to_pdfs(
                 ct,
             )
 
-    total = len(pdf_bytes_list)
+    total = len(outputs)
     return [
-        (build_filename(subject, sender, date, text_body, html_body, index=i + 1, total=total), data)
-        for i, data in enumerate(pdf_bytes_list)
+        (
+            build_filename(
+                doc_text, subject, sender, text_body, html_body, seed,
+                index=i + 1, total=total,
+            ),
+            pdf_bytes,
+        )
+        for i, (pdf_bytes, doc_text, seed) in enumerate(outputs)
     ]
 
 

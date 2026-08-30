@@ -1,4 +1,16 @@
-from rec.filenames import build_filename, extract_amount_and_currency
+import re
+
+from rec.pipeline.filenames import (
+    build_filename,
+    extract_amount_and_currency,
+    format_amount_digits,
+    short_id,
+)
+
+_ID = r"[a-z0-9]{5}"
+
+
+# --- extract_amount_and_currency (email subject/body fallback, unchanged) ---
 
 
 def test_extract_symbol_before_amount():
@@ -14,66 +26,92 @@ def test_extract_prefers_subject_over_body():
     assert (amount, currency) == ("9.99", "USD")
 
 
-def test_extract_falls_back_to_body_when_subject_has_no_amount():
-    amount, currency = extract_amount_and_currency("Your order details", "Total £ 4.99 paid today")
-    assert (amount, currency) == ("4.99", "GBP")
-
-
 def test_extract_returns_none_when_nothing_found():
     assert extract_amount_and_currency("Your order details", "no numbers here") == (None, None)
 
 
-def test_build_filename_full_format():
+# --- format_amount_digits -------------------------------------------------
+
+
+def test_format_amount_digits():
+    assert format_amount_digits("495.86") == "49586"
+    assert format_amount_digits("4.99") == "499"
+    assert format_amount_digits("1.234,56") == "123456"
+    assert format_amount_digits("12,00") == "1200"
+    assert format_amount_digits("84.60") == "8460"
+    assert format_amount_digits("90") == "9000"
+    assert format_amount_digits(None) == "unknown"
+
+
+# --- short_id ------------------------------------------------------------
+
+
+def test_short_id_is_deterministic_and_shaped():
+    assert re.fullmatch(_ID, short_id(b"receipt-bytes"))
+    assert short_id(b"receipt-bytes") == short_id(b"receipt-bytes")
+    assert short_id(b"a") != short_id(b"b")
+    assert re.fullmatch(_ID, short_id("some-string-seed"))
+
+
+# --- build_filename ----------------------------------------------------
+
+
+def test_build_filename_from_ocr_text():
     name = build_filename(
-        subject="Your order details",
-        sender="British Airways <no-reply@britishairways.com>",
-        date="Thu, 06 Aug 2026 16:54:00 +0000",
-        text_body="Total £ 4.99",
-        html_body=None,
-    )
-    assert name == "2026-08-06-British-Airways-4-99-GBP.pdf"
-
-
-def test_build_filename_falls_back_on_missing_amount():
-    name = build_filename(
-        subject="Your order details",
-        sender="British Airways <no-reply@britishairways.com>",
-        date="Thu, 06 Aug 2026 16:54:00 +0000",
-        text_body="no amount mentioned here",
-        html_body=None,
-    )
-    assert name == "2026-08-06-British-Airways-unknown-amount-unknown-currency.pdf"
-
-
-def test_build_filename_falls_back_on_unparseable_date():
-    name = build_filename(
-        subject="x",
-        sender="a@b.com",
-        date="not a date",
+        doc_text="STARBUCKS COFFEE\nTable 2\nTotal 4.99 EUR",
+        subject="photo 2026-08-30",
+        sender="macrodroid",
         text_body=None,
         html_body=None,
+        seed=b"imagebytes",
     )
-    assert name.startswith("unknown-date-")
+    assert re.fullmatch(rf"starbucks-coffee-meal-EUR-499-{_ID}\.pdf", name)
 
 
-def test_build_filename_uses_email_local_part_when_no_display_name():
+def test_build_filename_prefers_non_gbp_amount():
     name = build_filename(
-        subject="x",
+        doc_text="AMERICAN EXPRESS\nTransaction 50.00 USD\nGBP amount £39.50\nTotal £39.50",
+        subject="statement",
+        sender="American Express <no-reply@amex.com>",
+        text_body=None,
+        html_body=None,
+        seed=b"pdfbytes",
+    )
+    assert re.fullmatch(rf"american-express-statement-USD-5000-{_ID}\.pdf", name)
+
+
+def test_build_filename_falls_back_to_sender_and_subject():
+    name = build_filename(
+        doc_text="",
+        subject="Your trip total £4.99",
+        sender="British Airways <no-reply@britishairways.com>",
+        text_body=None,
+        html_body=None,
+        seed="seed",
+    )
+    assert re.fullmatch(rf"british-airways-flight-GBP-499-{_ID}\.pdf", name)
+
+
+def test_build_filename_all_unknown():
+    name = build_filename(
+        doc_text="",
+        subject="",
         sender="receipts@shop.com",
-        date="Thu, 06 Aug 2026 16:54:00 +0000",
         text_body=None,
         html_body=None,
+        seed="x",
     )
-    assert "receipts" in name
+    assert re.fullmatch(rf"receipts-misc-unknown-unknown-{_ID}\.pdf", name)
 
 
 def test_build_filename_appends_index_when_multiple():
     kwargs = dict(
+        doc_text="",
         subject="x",
         sender="a@b.com",
-        date="Thu, 06 Aug 2026 16:54:00 +0000",
         text_body=None,
         html_body=None,
+        seed="s",
     )
     first = build_filename(**kwargs, index=1, total=2)
     second = build_filename(**kwargs, index=2, total=2)

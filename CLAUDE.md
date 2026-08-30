@@ -14,6 +14,27 @@ destination email as PDFs. It has **two ingress channels** feeding **one output*
 
 There is no database and no web framework. State is a flat JSON file.
 
+## Package layout
+
+`rec/` is split into three sub-packages by role:
+
+```
+rec/
+  core/      config.py  secrets.py  state.py  logging_setup.py  text.py
+  ingest/    imap_watcher.py  http_server.py
+  pipeline/  poller.py  forwarder.py  filenames.py  ocr.py  pdf.py
+```
+
+- **`core/`** — process-wide plumbing with no `rec`-internal deps beyond each
+  other (`config` ← `secrets`/`state`/`logging_setup`; `text` is standalone).
+- **`ingest/`** — the two request/message readers. Import from `..core` only.
+- **`pipeline/`** — normalize-to-PDF, name, and send. `poller.py` is the
+  orchestrator and the only module that reaches across into `..ingest`.
+
+Import direction is one-way: `core → ingest → pipeline`. `main.py` →
+`rec.pipeline.poller.run()`. Tests import the fully-qualified path
+(`rec.pipeline.ocr`, `rec.core.state`, …).
+
 ## Commands
 
 ```bash
@@ -34,25 +55,28 @@ uv run python main.py            # run the service locally
 
 ### One thread does the work; the HTTP server only feeds it
 
-`main.py` → `rec/poller.py::run()` is the entire process: a `while True` loop that
-calls `process_once()` (IMAP), touches a heartbeat file, and sleeps `POLL_SECONDS`.
+`main.py` → `rec/pipeline/poller.py::run()` is the entire process: a `while True`
+loop that calls `process_once()` (IMAP), touches a heartbeat file, and sleeps
+`POLL_SECONDS`.
 
-When `HTTP_ENABLED`, `run()` also starts `rec/http_server.py` (stdlib
+When `HTTP_ENABLED`, `run()` also starts `rec/ingest/http_server.py` (stdlib
 `ThreadingHTTPServer`) in a **daemon thread**. That thread does **not** render or
 send anything — its handler validates the request and puts an `HttpUpload` job on
 a `queue.Queue`. The main loop drains the queue (`_drain_http_queue` →
-`forward_upload`) and does all Playwright/SMTP/state work itself. This split
+`forward_upload`) and does all Playwright/OCR/SMTP/state work itself. This split
 exists because **Playwright's sync API is bound to the thread that launched
-Chromium** (`rec/pdf.py`, module-global singleton browser, `close_browser()`
-wired into the SIGTERM handler and loop exit). The request handler blocks until
+Chromium** (`rec/pipeline/pdf.py`, module-global singleton browser,
+`close_browser()` wired into the SIGTERM handler and loop exit); Tesseract and
+pypdf are subprocess/pure-Python and thread-agnostic but run there anyway. The
+request handler blocks until
 the loop reports the per-job outcome back through `job.result_q`, so the caller
 gets a real `200 forwarded` / `502` / `504`. A failed HTTP-server startup is
 caught and the loop continues email-only.
 
 ### The shared pipeline seam
 
-Both ingress paths converge on two functions in `rec/poller.py` +
-`rec/forwarder.py`:
+Both ingress paths converge on two functions in `rec/pipeline/poller.py` +
+`rec/pipeline/forwarder.py`:
 
 ```
 normalize_to_pdfs(subject, sender, date, html_body, text_body,
@@ -66,15 +90,32 @@ send_with_attachments(smtp_user, smtp_pass, to, subject, body,
 - `normalize_to_pdfs`: PDF attachments pass through; images
   (`_IMAGE_TYPES` = jpeg/png/heic/webp) are inlined into a minimal `<img>` HTML
   page and rendered by Chromium; the email body is rendered only when there is no
-  PDF/image to carry the receipt; anything else is logged and dropped.
-- Output filenames come from `rec/filenames.py::build_filename` →
-  `[date]-[sender]-[amount]-[currency].pdf`. Amount/currency are **regex-scraped
-  from the subject/body text**, never OCR'd from the image.
+  PDF/image to carry the receipt; anything else is logged and dropped. Internally
+  it now carries a `(pdf_bytes, doc_text, id_seed)` triple per output so the
+  filename can be built per-attachment.
+- Output filenames come from `rec/pipeline/filenames.py::build_filename` →
+  **`vendor-category-CUR-amount-id.pdf`** (e.g.
+  `starbucks-meal-EUR-499-a3f9k.pdf`). The fields are read from the *document*:
+  - **image** → Tesseract OCR (`rec/pipeline/ocr.py::ocr_image`, langs `OCR_LANGS`,
+    default `eng+deu`).
+  - **PDF attachment** → its embedded text layer (`ocr.py::pdf_text`, pypdf).
+  - **rendered email body / no usable text** → fall back to the sender slug +
+    the old subject/body amount regex (`extract_amount_and_currency`).
+  - `amount` = digits only, last two always the minor unit (`£495.86`→`49586`,
+    `12,00`→`1200`, bare `90`→`9000`). `currency`: a **non-GBP** amount always
+    wins over a GBP one (foreign receipts, Amex/Lloyds statements), tagged with
+    the detected code or `EUR` if unresolved; GBP only when it's the sole
+    currency; `unknown` when no amount is found at all. `id` = 5 chars of
+    `sha1(source-bytes)` — deterministic, so a retry can't rename a duplicate.
+  - `category` (ordered keyword match, EN+DE, `misc` default):
+    `statement, flight, train, taxi, hotel, fuel, seats, meal`.
+  - Any OCR/parse failure returns `""` and degrades to the fallback — it never
+    raises into the loop.
 - Callers: `process_once()` (email) and `forward_upload()` (HTTP). `forward_upload`
   synthesizes `subject`/`sender`/`date` from the `X-Subject` / `X-Source` headers
   (or falls back to `photo <UTC timestamp>` / `macrodroid` / now).
 
-### IMAP specifics (`rec/imap_watcher.py`)
+### IMAP specifics (`rec/ingest/imap_watcher.py`)
 
 - Selects `[Gmail]/All Mail`, **not** the watched label, so `-X-GM-LABELS` STOREs
   are honored when relabeling processed mail from `GMAIL_LABEL_IN` to
@@ -86,10 +127,12 @@ send_with_attachments(smtp_user, smtp_pass, to, subject, body,
 
 ### Config and secrets
 
-- `rec/config.py`: plain `os.getenv` module-level constants. Env var names are
-  **lowercase**, Python constants **UPPER_CASE**. `ENV_FILE_PATH` (if set) selects
-  a `.env` to load — in prod the container mounts one from the host.
-- Secrets are **never** in env or `.env`. `rec/secrets.py` fetches them from
+- `rec/core/config.py`: plain `os.getenv` module-level constants. Env var names
+  are **lowercase**, Python constants **UPPER_CASE**. `ENV_FILE_PATH` (if set)
+  selects a `.env` to load — in prod the container mounts one from the host.
+  OCR knobs: `ocr_enabled` (default `true`), `ocr_langs` (`eng+deu`),
+  `tesseract_cmd` (empty → PATH), `ocr_timeout` (`30`s).
+- Secrets are **never** in env or `.env`. `rec/core/secrets.py` fetches them from
   **Infisical** via `azkees.InfisicalClient`. `.env` holds only the Infisical
   section name (`az-keyvault-smtp`) and the *secret names* to look up
   (`smtp-username`, `smtp-pwd`, `rec-http-token`). `get_gmail_credentials()` and
@@ -98,7 +141,7 @@ send_with_attachments(smtp_user, smtp_pass, to, subject, body,
 
 ### State and health
 
-- `rec/state.py`: flat JSON at `DEDUP_STATE_PATH` (`/app/state/dedup_state.json`).
+- `rec/core/state.py`: flat JSON at `DEDUP_STATE_PATH` (`/app/state/dedup_state.json`).
   Keys: `X-GM-MSGID` for email, `http:<sha256(image bytes)>` for uploads (so a
   MacroDroid retry can't double-send). The whole file is loaded, mutated, and
   rewritten per item — safe only because it is single-threaded.
@@ -108,7 +151,7 @@ send_with_attachments(smtp_user, smtp_pass, to, subject, body,
 
 ### Logging
 
-`rec/logging_setup.py` → `log = logpy.log.get_logger(__name__)` (the `pylogpy`
+`rec/core/logging_setup.py` → `log = logpy.log.get_logger(__name__)` (the `pylogpy`
 dist imports as `logpy`). Convention: `log.info("<module>: <message>", *args)`,
 `log.exception(...)` for caught loop errors, `log.warning(...)` for skips.
 
@@ -148,9 +191,12 @@ Notes for future changes:
   (deliberate — avoids uid-mismatch write failures on the bind-mounted
   `/app/state`).
 - `docker/Dockerfile.debian` is two-stage: a deps-only `uv sync` layer keyed on
-  `pyproject.toml`/`uv.lock` (so editing `rec/*.py` doesn't bust it), then
-  `playwright install --with-deps chromium`, then the source copy. `EXPOSE 8080`
-  is documentation only.
+  `pyproject.toml`/`uv.lock` (so editing `rec/**/*.py` doesn't bust it), then an
+  `apt-get install tesseract-ocr tesseract-ocr-{eng,deu}` layer, then
+  `playwright install --with-deps chromium`, then the source copy. The two apt
+  layers are kept separate so bumping one doesn't invalidate the other.
+  `pillow`/`pypdf` are pure-Python wheels (no system packages). `EXPOSE 8080` is
+  documentation only.
 - `.dockerignore` excludes `tests/`, `*.md`, `docker/`, `.github/` — image size
   and cache keys are unaffected by test/doc changes.
 
@@ -168,10 +214,14 @@ send JPEG/PNG.
 
 - `pytest` + `pytest-mock`. `tests/conftest.py` sets
   `ENV_FILE_PATH=/nonexistent/.env` so tests never read a real `.env`.
-- `tests/test_config.py` tests env parsing by `importlib.reload(config)` inside a
-  helper that sets env vars first.
-- Playwright is stubbed by `monkeypatch.setattr(poller, "render_html_to_pdf", …)`.
-- `normalize_to_pdfs` and `http_server.handle_upload` are written as pure
-  functions and tested directly with literal inputs — no sockets, no IMAP/SMTP.
-  There are **no IMAP or SMTP integration tests**.
+- `tests/test_config.py` tests env parsing by `importlib.reload(config)` (imported
+  as `from rec.core import config`) inside a helper that sets env vars first.
+- Playwright is stubbed by `monkeypatch.setattr(poller, "render_html_to_pdf", …)`;
+  OCR by `_stub_ocr` (`monkeypatch.setattr(poller, "ocr_image"/"pdf_text", …)`) —
+  the test suite never needs a real `tesseract` binary.
+- `normalize_to_pdfs`, `http_server.handle_upload`, and the `ocr.py` heuristics
+  (`classify_category`, `extract_vendor`, `extract_amount_and_currency`,
+  `filenames.build_filename`) are pure functions tested directly with literal
+  inputs — no sockets, no IMAP/SMTP, no images. There are **no IMAP or SMTP
+  integration tests**.
 - **CI does not run the test suite.** Tests are a local/dev gate only.

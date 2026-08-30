@@ -1,6 +1,6 @@
 import pytest
 
-import rec.http_server as http_server
+import rec.ingest.http_server as http_server
 
 _TOKEN = "test-secret-token"
 _JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 32

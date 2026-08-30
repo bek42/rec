@@ -11,6 +11,9 @@ dependencies = [
     "azkees[infisical]>=7.0.2,<8.0.0",
     "pylogpy>=1.6.2,<2.0.0",
     "playwright>=1.55.0,<2.0.0",
+    "pytesseract>=0.3.13,<0.4.0",
+    "pillow>=11.0.0,<12.0.0",
+    "pypdf>=5.1.0,<6.0.0",
 ]
 
 [dependency-groups]

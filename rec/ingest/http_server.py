@@ -31,9 +31,9 @@ from email.utils import format_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Mapping, NamedTuple
 
-from .config import HTTP_BIND, HTTP_MAX_UPLOAD_BYTES, HTTP_PORT, HTTP_RESULT_TIMEOUT
-from .logging_setup import log
-from .secrets import get_http_token
+from ..core.config import HTTP_BIND, HTTP_MAX_UPLOAD_BYTES, HTTP_PORT, HTTP_RESULT_TIMEOUT
+from ..core.logging_setup import log
+from ..core.secrets import get_http_token
 
 # Content types normalize_to_pdfs (poller.py) knows how to render into a PDF.
 _ACCEPTED_TYPES = {"image/jpeg", "image/png", "image/webp"}

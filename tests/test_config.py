@@ -5,7 +5,7 @@ def _reload_config(monkeypatch, **env):
     monkeypatch.setenv("ENV_FILE_PATH", "/nonexistent/.env")
     for key, value in env.items():
         monkeypatch.setenv(key, value)
-    from rec import config
+    from rec.core import config
 
     return importlib.reload(config)
 
@@ -24,7 +24,7 @@ def test_test_mode_falsy_strings(monkeypatch):
 
 def test_poll_seconds_defaults_and_parses(monkeypatch):
     monkeypatch.delenv("poll_seconds", raising=False)
-    from rec import config
+    from rec.core import config
 
     config = importlib.reload(config)
     assert config.POLL_SECONDS == 300
@@ -36,7 +36,7 @@ def test_poll_seconds_defaults_and_parses(monkeypatch):
 def test_gmail_label_defaults(monkeypatch):
     monkeypatch.delenv("gmail_label_in", raising=False)
     monkeypatch.delenv("gmail_label_out", raising=False)
-    from rec import config
+    from rec.core import config
 
     config = importlib.reload(config)
     assert config.GMAIL_LABEL_IN == "Receipts/In"
@@ -45,7 +45,7 @@ def test_gmail_label_defaults(monkeypatch):
 
 def test_subject_trigger_default(monkeypatch):
     monkeypatch.delenv("subject_trigger", raising=False)
-    from rec import config
+    from rec.core import config
 
     config = importlib.reload(config)
     assert config.SUBJECT_TRIGGER == "[rec]"
@@ -63,7 +63,7 @@ def test_http_channel_defaults(monkeypatch):
     ):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("key_gmail_infisical_section", "az-keyvault-smtp")
-    from rec import config
+    from rec.core import config
 
     config = importlib.reload(config)
     assert config.HTTP_ENABLED is False
@@ -88,3 +88,35 @@ def test_http_channel_overrides(monkeypatch):
     assert config.HTTP_PORT == 9000
     assert config.HTTP_MAX_UPLOAD_BYTES == 1024
     assert config.key_http_infisical_section == "az-keyvault-rec-http"
+
+
+def test_ocr_defaults(monkeypatch):
+    for var in ("ocr_enabled", "ocr_langs", "tesseract_cmd", "ocr_timeout"):
+        monkeypatch.delenv(var, raising=False)
+    from rec.core import config
+
+    config = importlib.reload(config)
+    assert config.OCR_ENABLED is True
+    assert config.OCR_LANGS == "eng+deu"
+    assert config.TESSERACT_CMD == ""
+    assert config.OCR_TIMEOUT == 30
+
+
+def test_ocr_overrides(monkeypatch):
+    config = _reload_config(
+        monkeypatch,
+        ocr_enabled="false",
+        ocr_langs="eng",
+        tesseract_cmd="/usr/bin/tesseract",
+        ocr_timeout="10",
+    )
+    assert config.OCR_ENABLED is False
+    assert config.OCR_LANGS == "eng"
+    assert config.TESSERACT_CMD == "/usr/bin/tesseract"
+    assert config.OCR_TIMEOUT == 10
+
+
+def test_ocr_enabled_truthy_strings(monkeypatch):
+    for value in ("true", "True", "1", "t"):
+        config = _reload_config(monkeypatch, ocr_enabled=value)
+        assert config.OCR_ENABLED is True, f"expected {value!r} to be truthy"
