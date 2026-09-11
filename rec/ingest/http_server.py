@@ -31,13 +31,18 @@ from email.utils import format_datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Mapping, NamedTuple
 
-from ..core.config import HTTP_BIND, HTTP_MAX_UPLOAD_BYTES, HTTP_PORT, HTTP_RESULT_TIMEOUT
+from ..core.config import (
+    HTTP_BIND,
+    HTTP_MAX_UPLOAD_BYTES,
+    HTTP_PORT,
+    HTTP_RESULT_TIMEOUT,
+    HTTP_UPLOAD_PATH,
+)
 from ..core.logging_setup import log
 from ..core.secrets import get_http_token
 
 # Content types normalize_to_pdfs (poller.py) knows how to render into a PDF.
 _ACCEPTED_TYPES = {"image/jpeg", "image/png", "image/webp"}
-_UPLOAD_PATH = "/upload"
 
 
 class HttpUpload(NamedTuple):
@@ -160,7 +165,7 @@ class _UploadHandler(BaseHTTPRequestHandler):
         self.wfile.write(blob)
 
     def do_POST(self) -> None:  # noqa: N802 — stdlib-mandated name
-        if self.path.rstrip("/") != _UPLOAD_PATH:
+        if self.path.split("?", 1)[0].rstrip("/") != HTTP_UPLOAD_PATH:
             self._respond(404, {"status": "error", "detail": "not found"})
             return
 
@@ -208,5 +213,5 @@ def build_server(job_q: queue.Queue) -> _UploadServer:
     """Create (but do not start) the upload server. Caller runs serve_forever()
     in a daemon thread and calls shutdown() on SIGTERM."""
     server = _UploadServer((HTTP_BIND, HTTP_PORT), job_q)
-    log.info("http_server: listening on %s:%s%s", HTTP_BIND, HTTP_PORT, _UPLOAD_PATH)
+    log.info("http_server: listening on %s:%s%s", HTTP_BIND, HTTP_PORT, HTTP_UPLOAD_PATH)
     return server

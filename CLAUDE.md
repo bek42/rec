@@ -131,7 +131,11 @@ send_with_attachments(smtp_user, smtp_pass, to, subject, body,
   are **lowercase**, Python constants **UPPER_CASE**. `ENV_FILE_PATH` (if set)
   selects a `.env` to load — in prod the container mounts one from the host.
   OCR knobs: `ocr_enabled` (default `true`), `ocr_langs` (`eng+deu`),
-  `tesseract_cmd` (empty → PATH), `ocr_timeout` (`30`s).
+  `tesseract_cmd` (empty → PATH), `ocr_timeout` (`30`s). `http_upload_path`
+  (default `upload`, leading/trailing `/` stripped) overrides the single
+  accepted `POST` path — set it to an unguessable value when the endpoint sits
+  behind a public reverse proxy that skips bot-challenge middleware for one
+  exact path (see "HTTP ingress in production").
 - Secrets are **never** in env or `.env`. `rec/core/secrets.py` fetches them from
   **Infisical** via `azkees.InfisicalClient`. `.env` holds only the Infisical
   section name (`az-keyvault-smtp`) and the *secret names* to look up

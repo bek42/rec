@@ -68,6 +68,12 @@ HEARTBEAT_PATH = os.getenv("heartbeat_path", "/app/state/heartbeat")
 HTTP_ENABLED = os.getenv("http_enabled", "false").lower() in ("true", "1", "t")
 HTTP_BIND = os.getenv("http_bind", "0.0.0.0")
 HTTP_PORT = int(os.getenv("http_port", "8080"))
+# The single accepted upload path. Defaults to the obvious "/upload", but when
+# the endpoint sits behind a public reverse proxy (e.g. a Cloudflare Tunnel
+# hostname with bot-challenge middleware skipped only for one exact path) this
+# can be set to an unguessable value instead, so a scanner hitting the
+# well-known path never even reaches the bearer-token check.
+HTTP_UPLOAD_PATH = "/" + os.getenv("http_upload_path", "upload").strip("/")
 HTTP_MAX_UPLOAD_BYTES = int(os.getenv("http_max_upload_bytes", str(25 * 1024 * 1024)))
 # How long the handler waits for the poll-loop thread to render + send before
 # returning 504 (the upload still completes server-side).

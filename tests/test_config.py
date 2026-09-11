@@ -56,6 +56,7 @@ def test_http_channel_defaults(monkeypatch):
         "http_enabled",
         "http_bind",
         "http_port",
+        "http_upload_path",
         "http_max_upload_bytes",
         "http_result_timeout",
         "key_http_token",
@@ -69,6 +70,7 @@ def test_http_channel_defaults(monkeypatch):
     assert config.HTTP_ENABLED is False
     assert config.HTTP_BIND == "0.0.0.0"
     assert config.HTTP_PORT == 8080
+    assert config.HTTP_UPLOAD_PATH == "/upload"
     assert config.HTTP_MAX_UPLOAD_BYTES == 25 * 1024 * 1024
     assert config.HTTP_RESULT_TIMEOUT == 60
     assert config.key_http_token == "rec-http-token"
@@ -81,13 +83,20 @@ def test_http_channel_overrides(monkeypatch):
         monkeypatch,
         http_enabled="true",
         http_port="9000",
+        http_upload_path="/d71eef06357e19875d9be51a48534cba",
         http_max_upload_bytes="1024",
         key_http_infisical_section="az-keyvault-rec-http",
     )
     assert config.HTTP_ENABLED is True
     assert config.HTTP_PORT == 9000
+    assert config.HTTP_UPLOAD_PATH == "/d71eef06357e19875d9be51a48534cba"
     assert config.HTTP_MAX_UPLOAD_BYTES == 1024
     assert config.key_http_infisical_section == "az-keyvault-rec-http"
+
+
+def test_http_upload_path_strips_slashes(monkeypatch):
+    config = _reload_config(monkeypatch, http_upload_path="//secret-path//")
+    assert config.HTTP_UPLOAD_PATH == "/secret-path"
 
 
 def test_ocr_defaults(monkeypatch):
