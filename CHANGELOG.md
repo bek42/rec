@@ -1,3 +1,9 @@
+## v0.7.0 (2026-09-11)
+
+### Feat
+
+- make the HTTP upload path configurable via env
+
 ## v0.6.0 (2026-08-30)
 
 ### Feat
