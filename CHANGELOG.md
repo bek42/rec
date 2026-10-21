@@ -1,3 +1,9 @@
+## v0.7.1 (2026-10-21)
+
+### Fix
+
+- sniff magic bytes when an attachment is mislabeled octet-stream
+
 ## v0.7.0 (2026-09-11)
 
 ### Feat
