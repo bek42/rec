@@ -55,9 +55,11 @@ class HttpUpload(NamedTuple):
     result_q: queue.Queue
 
 
-def _sniff_image_type(data: bytes) -> str | None:
+def sniff_image_type(data: bytes) -> str | None:
     """Best-effort content sniff from magic bytes, for clients that don't set a
-    useful Content-Type."""
+    useful Content-Type. Shared with poller.py's email-attachment path, which
+    hits the same problem (some senders attach a photo as
+    application/octet-stream)."""
     if data[:3] == b"\xff\xd8\xff":
         return "image/jpeg"
     if data[:8] == b"\x89PNG\r\n\x1a\n":
@@ -118,7 +120,7 @@ def handle_upload(
         return 400, {"status": "error", "detail": "empty upload"}, None
 
     if content_type not in _ACCEPTED_TYPES:
-        sniffed = _sniff_image_type(data)
+        sniffed = sniff_image_type(data)
         if sniffed in _ACCEPTED_TYPES:
             content_type = sniffed
         elif sniffed == "image/heic":

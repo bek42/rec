@@ -23,7 +23,7 @@ from ..core.config import (
 from ..core.logging_setup import log
 from ..core.secrets import get_gmail_credentials
 from ..core.state import already_forwarded, load_state, mark_forwarded, save_state
-from ..ingest.http_server import HttpUpload, build_server
+from ..ingest.http_server import HttpUpload, build_server, sniff_image_type
 from ..ingest.imap_watcher import (
     connect,
     extract_body_and_attachments,
@@ -38,6 +38,23 @@ from .ocr import ocr_image, pdf_text
 from .pdf import close_browser, render_html_to_pdf, wrap_email_as_html
 
 _IMAGE_TYPES = {"image/jpeg", "image/png", "image/heic", "image/webp"}
+# Subset _IMAGE_TYPES that Chromium can actually paint from a data: URI — HEIC
+# has no <img> support in any browser engine, so a sniffed HEIC is left alone
+# (same policy as the HTTP upload channel, which rejects HEIC outright).
+_SNIFFABLE_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
+
+
+def _effective_content_type(content_type: str, data: bytes) -> str:
+    """Some senders (and some forwarding hops) attach a photo as
+    application/octet-stream instead of a real image/* type — Gmail's own
+    "forward" of a camera upload is one observed case. Trust the declared
+    type when it's already something we handle; otherwise sniff the magic
+    bytes, same heuristic the HTTP upload channel uses, so a mislabeled
+    receipt photo doesn't silently degrade to a near-empty email-body PDF."""
+    if content_type in _IMAGE_TYPES or content_type == "application/pdf":
+        return content_type
+    sniffed = sniff_image_type(data)
+    return sniffed if sniffed in _SNIFFABLE_IMAGE_TYPES else content_type
 
 
 def normalize_to_pdfs(
@@ -55,13 +72,18 @@ def normalize_to_pdfs(
     otherwise a photographed receipt would produce a near-empty "email body"
     PDF alongside the real one. Anything else (docx/xlsx/zip/...) is logged
     and skipped — Playwright renders HTML, it does not convert arbitrary
-    office formats.
+    office formats. A declared content type of application/octet-stream is
+    first resolved against the attachment's magic bytes (see
+    _effective_content_type) before falling into any of the above.
 
     Each output is named vendor-category-CUR-amount-id.pdf. For an image the
     fields come from Tesseract OCR of the photo; for a PDF attachment from its
     extracted text layer; a rendered email body (and any source that yields no
     usable text) falls back to the sender slug + subject/body regex. `id` is a
     deterministic hash of the source bytes so a retry can't rename a duplicate."""
+    attachments = [
+        (fn, _effective_content_type(ct, data), data) for fn, ct, data in attachments
+    ]
     # (pdf_bytes, doc_text, id_seed) per output.
     outputs: list[tuple[bytes, str, bytes | str]] = []
     has_pdf = any(ct == "application/pdf" for _, ct, _ in attachments)

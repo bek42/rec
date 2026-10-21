@@ -90,8 +90,16 @@ send_with_attachments(smtp_user, smtp_pass, to, subject, body,
 - `normalize_to_pdfs`: PDF attachments pass through; images
   (`_IMAGE_TYPES` = jpeg/png/heic/webp) are inlined into a minimal `<img>` HTML
   page and rendered by Chromium; the email body is rendered only when there is no
-  PDF/image to carry the receipt; anything else is logged and dropped. Internally
-  it now carries a `(pdf_bytes, doc_text, id_seed)` triple per output so the
+  PDF/image to carry the receipt; anything else is logged and dropped. A
+  declared `application/octet-stream` (some senders mislabel photo
+  attachments this way — observed from Gmail's own forward of a camera
+  upload) is first resolved against the attachment's magic bytes via
+  `rec/ingest/http_server.py::sniff_image_type` — the same sniff the HTTP
+  upload channel uses — before falling through to "no PDF/image" and
+  rendering a near-empty body PDF instead. HEIC is deliberately excluded from
+  the sniffed fallback (no browser engine can paint it in an `<img>`, same
+  reasoning as the HTTP channel's explicit HEIC rejection). Internally it now
+  carries a `(pdf_bytes, doc_text, id_seed)` triple per output so the
   filename can be built per-attachment.
 - Output filenames come from `rec/pipeline/filenames.py::build_filename` →
   **`vendor-category-CUR-amount-id.pdf`** (e.g.

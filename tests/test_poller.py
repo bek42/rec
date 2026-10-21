@@ -1,3 +1,4 @@
+import base64
 import queue
 
 import rec.pipeline.poller as poller
@@ -24,6 +25,42 @@ def test_image_attachment_alone_skips_body_pdf(monkeypatch):
         text_body=None,
         attachments=[("receipt.jpg", "image/jpeg", b"fakejpegbytes")],
     )
+    assert len(pdfs) == 1
+
+
+def test_octet_stream_jpeg_sniffed_as_image(monkeypatch):
+    # Some senders (and Gmail's own forward-of-a-camera-upload) attach a photo
+    # as application/octet-stream instead of image/jpeg. Regression test for
+    # the bug where this silently degraded to a near-empty email-body PDF.
+    _stub_render(monkeypatch)
+    _stub_ocr(monkeypatch)
+    jpeg_bytes = b"\xff\xd8\xff\xe0" + b"\x00" * 32
+    pdfs = poller.normalize_to_pdfs(
+        subject="[rec] {v=Receipt Type}",
+        sender="Bharani Nitturi <bharani.nitturi@gmail.com>",
+        date="Mon, 19 Oct 2026 13:28:14 -0400",
+        html_body=None,
+        text_body=None,
+        attachments=[("20261019_175700.jpg", "application/octet-stream", jpeg_bytes)],
+    )
+    assert len(pdfs) == 1
+    # Rendered from the photo (base64 embedded in the stubbed <img> HTML),
+    # not from the near-empty email body.
+    assert base64.b64encode(jpeg_bytes).decode() in pdfs[0][1].decode()
+
+
+def test_octet_stream_non_image_still_skipped(monkeypatch):
+    _stub_render(monkeypatch)
+    _stub_ocr(monkeypatch)
+    pdfs = poller.normalize_to_pdfs(
+        subject="Some receipt",
+        sender="Bharani Nitturi <bharani.nitturi@gmail.com>",
+        date="Mon, 19 Oct 2026 13:28:14 -0400",
+        html_body=None,
+        text_body="total EUR 12.00",
+        attachments=[("statement.docx", "application/octet-stream", b"not actually an image")],
+    )
+    # No image/PDF survives sniffing -> falls back to rendering the body, as before.
     assert len(pdfs) == 1
 
 
