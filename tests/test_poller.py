@@ -4,6 +4,8 @@ import queue
 import rec.pipeline.poller as poller
 import rec.core.state as state
 
+_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+
 
 def _stub_render(monkeypatch):
     monkeypatch.setattr(poller, "render_html_to_pdf", lambda html: html.encode())
@@ -61,6 +63,52 @@ def test_octet_stream_non_image_still_skipped(monkeypatch):
         attachments=[("statement.docx", "application/octet-stream", b"not actually an image")],
     )
     # No image/PDF survives sniffing -> falls back to rendering the body, as before.
+    assert len(pdfs) == 1
+
+
+def test_image_with_substantial_body_renders_both(monkeypatch):
+    # Booking confirmations (Capital Cars and similar) put the actual receipt
+    # - booking ref, pickup/destination, driver, fare - in the HTML body and
+    # attach only an incidental image (a route map) alongside it. Regression
+    # test for the bug where fixing octet-stream sniffing on that same image
+    # caused the real content (the body) to be dropped entirely, leaving only
+    # a near-blank PDF of the map.
+    _stub_render(monkeypatch)
+    _stub_ocr(monkeypatch)
+    booking_html = (
+        "<table><tr><td>Booking Reference</td><td>65935674A</td></tr>"
+        "<tr><td>Pickup</td><td>Heathrow Terminal 5</td></tr>"
+        "<tr><td>Destination</td><td>66 Rosehill Park, Reading</td></tr>"
+        "<tr><td>Driver Number</td><td>70</td></tr></table>"
+    )
+    pdfs = poller.normalize_to_pdfs(
+        subject="Thank you for booking with Capital Cars",
+        sender="Capital Cars <noreply@capitalcars.example>",
+        date="Thu, 22 Oct 2026 18:37:00 +0100",
+        html_body=booking_html,
+        text_body=None,
+        attachments=[("png_284_BOOKING_RECEIPT_66230180.png", "application/octet-stream", _PNG)],
+    )
+    assert len(pdfs) == 2
+    rendered = [pdf_bytes.decode() for _, pdf_bytes in pdfs]
+    assert any("Booking Reference" in r for r in rendered)  # the body PDF
+    assert any(base64.b64encode(_PNG).decode() in r for r in rendered)  # the map PDF
+
+
+def test_image_with_trivial_body_skips_body_pdf(monkeypatch):
+    # Opposite case, must not regress: a photographed receipt with an empty
+    # body should still produce only the image PDF, not also a near-blank
+    # "email body" PDF.
+    _stub_render(monkeypatch)
+    _stub_ocr(monkeypatch)
+    pdfs = poller.normalize_to_pdfs(
+        subject="[rec] {v=Receipt Type}",
+        sender="Bharani Nitturi <bharani.nitturi@gmail.com>",
+        date="Mon, 19 Oct 2026 13:28:14 -0400",
+        html_body="",
+        text_body=None,
+        attachments=[("20261019_175700.jpg", "image/jpeg", _PNG)],
+    )
     assert len(pdfs) == 1
 
 

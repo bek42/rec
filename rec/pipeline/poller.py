@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import queue
+import re
 import signal
 import sys
 import threading
@@ -57,6 +58,23 @@ def _effective_content_type(content_type: str, data: bytes) -> str:
     return sniffed if sniffed in _SNIFFABLE_IMAGE_TYPES else content_type
 
 
+_MIN_BODY_CHARS = 40
+
+
+def _body_has_content(html_body: str | None, text_body: str | None) -> bool:
+    """True when the body carries real content beyond an empty/trivial
+    wrapper. Booking-confirmation emails (Capital Cars and similar) put the
+    actual receipt — booking ref, pickup/destination, driver, fare — in the
+    HTML body and attach only an incidental image (a route map) alongside
+    it; a photographed receipt sent with no body text is the opposite case.
+    Distinguishing the two keeps the body render from being dropped in the
+    first case or duplicated as a near-empty PDF in the second."""
+    raw = html_body or text_body or ""
+    text = re.sub(r"<[^>]+>", " ", raw)
+    text = re.sub(r"\s+", " ", text).strip()
+    return len(text) >= _MIN_BODY_CHARS
+
+
 def normalize_to_pdfs(
     subject: str,
     sender: str,
@@ -67,13 +85,18 @@ def normalize_to_pdfs(
 ) -> list[tuple[str, bytes]]:
     """PDF attachments pass through unchanged. Image attachments (photographed
     receipts) are individually wrapped into a minimal <img> HTML page and
-    rendered to PDF. The email body is only rendered to its own PDF when
-    there's no PDF or image attachment to carry the receipt instead —
-    otherwise a photographed receipt would produce a near-empty "email body"
-    PDF alongside the real one. Anything else (docx/xlsx/zip/...) is logged
-    and skipped — Playwright renders HTML, it does not convert arbitrary
-    office formats. A declared content type of application/octet-stream is
-    first resolved against the attachment's magic bytes (see
+    rendered to PDF. The email body additionally gets its own PDF whenever it
+    carries real content (see _body_has_content) — a booking confirmation's
+    receipt details live in the HTML body, with any image attachment just
+    incidental (e.g. a route map), so suppressing the body there would drop
+    the actual receipt. When the body has no real content (a photographed
+    receipt sent with an empty body, or no body at all) and there's an image
+    or PDF to carry the receipt instead, the body is skipped — otherwise a
+    photographed receipt would produce a near-empty "email body" PDF
+    alongside the real one. Anything else (docx/xlsx/zip/...) is logged and
+    skipped — Playwright renders HTML, it does not convert arbitrary office
+    formats. A declared content type of application/octet-stream is first
+    resolved against the attachment's magic bytes (see
     _effective_content_type) before falling into any of the above.
 
     Each output is named vendor-category-CUR-amount-id.pdf. For an image the
@@ -93,7 +116,7 @@ def normalize_to_pdfs(
         for _, ct, data in attachments:
             if ct == "application/pdf":
                 outputs.append((data, pdf_text(data), data))
-    elif not has_image:
+    elif not has_image or _body_has_content(html_body, text_body):
         html = wrap_email_as_html(subject, sender, date, html_body, text_body)
         outputs.append((render_html_to_pdf(html), "", f"{subject}|{sender}"))
 
