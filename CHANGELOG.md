@@ -1,3 +1,9 @@
+## v0.7.2 (2026-10-23)
+
+### Fix
+
+- render booking-confirmation email bodies alongside an incidental image attachment
+
 ## v0.7.1 (2026-10-21)
 
 ### Fix
