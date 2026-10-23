@@ -83,8 +83,16 @@ jobs:
           OLD_TAG=$(grep 'image: reg.greatsky.co.uk/rec:' docker-compose.yml | sed 's|.*rec:||' | tr -d ' ')
           sed -i "s|image: reg.greatsky.co.uk/rec:.*|image: reg.greatsky.co.uk/rec:${{ github.ref_name }}|" docker-compose.yml
           git add docker-compose.yml
-          git commit -m "deploy: rec ${{ github.ref_name }}"
-          git push
+          # A re-run of this job (e.g. after Verify deployment alone failed)
+          # hits this step again with the tag already at HEAD - nothing to
+          # commit, and `git commit` exits non-zero on that under `set -e`,
+          # aborting the whole SSH session before compose ever re-runs. Only
+          # commit/push when there's an actual change; compose pull/up below
+          # is already idempotent and should always run.
+          if ! git diff --cached --quiet; then
+            git commit -m "deploy: rec ${{ github.ref_name }}"
+            git push
+          fi
           docker compose pull
           docker compose up -d
           if [ -n "$OLD_TAG" ] && [ "$OLD_TAG" != "${{ github.ref_name }}" ]; then
@@ -100,13 +108,21 @@ jobs:
           tailscale ssh bharani@${{ vars.DEPLOY_HOST }} << 'ENDSSH'
           set -e
           docker inspect rec --format '{{.Config.Image}}' | grep "${{ github.ref_name }}"
-          for i in $(seq 1 15); do
+          # The Dockerfile HEALTHCHECK only re-evaluates every 60s
+          # (--interval=60s) and the heartbeat it checks is only touched once
+          # per poll cycle - which can itself take tens of seconds if the
+          # first cycle after restart has real email/upload work to do, not
+          # just an empty poll. Worst case is roughly one poll cycle plus one
+          # healthcheck interval before the status can honestly flip to
+          # healthy, so budget well above the old 15x4s=60s (observed to be
+          # too tight and fail the deploy on an otherwise-fine container).
+          for i in $(seq 1 45); do
             STATUS=$(docker inspect rec --format '{{.State.Health.Status}}' 2>/dev/null || echo "starting")
             if [ "$STATUS" = "healthy" ]; then
               echo "rec is healthy"
               break
             fi
-            echo "Waiting for rec health check... ($i/15) status=$STATUS"
+            echo "Waiting for rec health check... ($i/45) status=$STATUS"
             sleep 4
           done
           docker inspect rec --format '{{.State.Health.Status}}' | grep -x healthy
