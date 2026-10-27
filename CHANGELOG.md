@@ -1,3 +1,9 @@
+## v0.8.0 (2026-10-27)
+
+### Feat
+
+- add OpenAI-based receipt categorization and fix EXIF rotation in OCR
+
 ## v0.7.3 (2026-10-23)
 
 ### Fix
