@@ -1,7 +1,7 @@
 import hashlib
 import re
 
-from ..core.text import sender_slug
+from ..core.text import sanitize_slug, sender_slug
 from .ocr import classify_category, extract_vendor
 from .ocr import extract_amount_and_currency as ocr_amount_and_currency
 
@@ -91,8 +91,9 @@ def build_filename(
     llm_fields = llm_fields or {}
     scrape_texts = [t for t in (doc_text, subject, text_body, html_body) if t]
 
+    llm_vendor = sanitize_slug(llm_fields["vendor"]) if llm_fields.get("vendor") else ""
     vendor = (
-        llm_fields.get("vendor")
+        (llm_vendor if llm_vendor != "unknown" else "")
         or (extract_vendor(doc_text) if doc_text else "")
         or sender_slug(sender)
         or "unknown"

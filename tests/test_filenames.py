@@ -122,6 +122,20 @@ def test_build_filename_llm_fields_override_category_and_vendor():
     assert re.fullmatch(rf"mint42-coffee-EUR-860-{_ID}\.pdf", name)
 
 
+def test_build_filename_llm_vendor_is_sanitized():
+    # Regression: the first live OpenAI classification returned vendor
+    # "Genuss & Harmonie", which went straight into the filename unsanitized
+    # ("genuss & harmonie-coffee-...") unlike every regex-derived vendor,
+    # which always goes through sanitize_slug.
+    name = build_filename(
+        doc_text="2x Flat White 6,60\nGESAMT 8,60",
+        subject="receipt", sender="receipts@shop.com", text_body=None, html_body=None,
+        seed=b"imagebytes",
+        llm_fields={"vendor": "Genuss & Harmonie", "category": "coffee", "currency": "EUR", "amount": "8.60"},
+    )
+    assert name.startswith("genuss-harmonie-coffee-EUR-860-")
+
+
 def test_build_filename_llm_fields_none_behaves_like_no_llm_fields():
     with_none = build_filename(
         doc_text="STARBUCKS COFFEE\nTotal 4.99 EUR",
