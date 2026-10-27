@@ -31,10 +31,18 @@ _SYSTEM_PROMPT = (
     "business name, to decide the category — for example coffee/espresso/"
     "cappuccino/latte/flat white items mean the category is coffee, not meal. "
     "Respond with ONLY a JSON object, no other text, with these fields: "
-    'vendor (short business name), category (pick the single best match from: '
+    "vendor (ONE word if possible, at most two short words — the brand name a "
+    "person would recognise, e.g. 'Starbucks' not 'Starbucks Coffee Company "
+    "GmbH & Co KG', 'MINT42' not 'Genuss & Harmonie / MINT42'), "
+    'category (pick the single best match from: '
     "{categories}), currency (ISO code like EUR, GBP, USD), amount (the total "
     "amount paid, as a plain decimal number, no currency symbol)."
 )
+
+# Safety net in case the model ignores the "short" instruction — matches the
+# word/length cap the regex-based extract_vendor() already applies.
+_MAX_VENDOR_WORDS = 2
+_MAX_VENDOR_CHARS = 20
 
 
 def classify_with_llm(text: str) -> dict | None:
@@ -86,8 +94,11 @@ def classify_with_llm(text: str) -> dict | None:
     if category not in RECEIPT_CATEGORIES:
         category = None
 
+    vendor = str(fields.get("vendor") or "").strip()
+    vendor = " ".join(vendor.split()[:_MAX_VENDOR_WORDS])[:_MAX_VENDOR_CHARS]
+
     result = {
-        "vendor": str(fields.get("vendor") or "").strip() or None,
+        "vendor": vendor or None,
         "category": category,
         "currency": str(fields.get("currency") or "").strip().upper() or None,
         "amount": str(fields["amount"]) if fields.get("amount") is not None else None,

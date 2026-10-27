@@ -39,9 +39,11 @@ def extract_amount_and_currency(*texts: str | None) -> tuple[str | None, str | N
 
 
 def format_amount_digits(amount: str | None) -> str:
-    """Digits only, with the last two digits always the minor unit (cents/pence).
-    '495.86'->'49586', '4.99'->'499', '1.234,56'->'123456', '12,00'->'1200',
-    '90'->'9000' (no decimal seen -> whole units). None -> 'unknown'."""
+    """Digits only, with the last two digits always the minor unit (cents/pence),
+    left-padded with zeros to at least 4 digits so every filename sorts/aligns
+    the same regardless of amount size. '495.86'->'49586', '4.99'->'0499',
+    '1.234,56'->'123456', '12,00'->'1200', '90'->'9000' (no decimal seen ->
+    whole units). None -> 'unknown'."""
     if not amount:
         return "unknown"
     m = re.search(r"[.,](\d{1,2})\s*$", amount)
@@ -51,7 +53,7 @@ def format_amount_digits(amount: str | None) -> str:
     else:
         frac = "00"
         whole = re.sub(r"\D", "", amount)
-    return (whole + frac).lstrip("0") or "0"
+    return (whole + frac).zfill(4)
 
 
 def short_id(seed: bytes | str, n: int = 5) -> str:

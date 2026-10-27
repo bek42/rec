@@ -81,6 +81,20 @@ def test_category_outside_configured_list_is_dropped(monkeypatch):
     assert result["amount"] == "8.60"
 
 
+def test_long_vendor_name_is_shortened(monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setattr(
+        llm_classify.urllib.request,
+        "urlopen",
+        lambda req, timeout: _FakeResponse(
+            _openai_payload(vendor="Genuss und Harmonie Gastronomie GmbH & Co KG")
+        ),
+    )
+    result = llm_classify.classify_with_llm("some receipt")
+    # at most 2 words, at most 20 chars
+    assert result["vendor"] == "Genuss und"
+
+
 def test_network_failure_falls_back_to_none(monkeypatch):
     _enable(monkeypatch)
 

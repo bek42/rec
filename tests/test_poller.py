@@ -129,7 +129,7 @@ def test_llm_classify_result_drives_filename(monkeypatch):
         attachments=[("receipt.jpg", "image/jpeg", b"fakejpegbytes")],
     )
     assert len(pdfs) == 1
-    assert pdfs[0][0].startswith("mint42-coffee-EUR-860-")
+    assert pdfs[0][0].startswith("mint42-coffee-EUR-0860-")
 
 
 def test_llm_classify_not_called_for_body_only_output(monkeypatch):
@@ -211,7 +211,7 @@ def test_image_ocr_drives_filename(monkeypatch):
         attachments=[("shot.jpg", "image/jpeg", b"fakejpegbytes")],
     )
     assert len(pdfs) == 1
-    assert pdfs[0][0].startswith("starbucks-coffee-meal-EUR-499-")
+    assert pdfs[0][0].startswith("starbucks-coffee-meal-EUR-0499-")
 
 
 def test_image_ocr_empty_falls_back_to_subject(monkeypatch):
@@ -225,7 +225,7 @@ def test_image_ocr_empty_falls_back_to_subject(monkeypatch):
         text_body=None,
         attachments=[("shot.jpg", "image/jpeg", b"fakejpegbytes")],
     )
-    assert "-GBP-475-" in pdfs[0][0]
+    assert "-GBP-0475-" in pdfs[0][0]
 
 
 def test_pdf_text_drives_filename_with_non_gbp_preference(monkeypatch):

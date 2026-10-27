@@ -35,11 +35,12 @@ def test_extract_returns_none_when_nothing_found():
 
 def test_format_amount_digits():
     assert format_amount_digits("495.86") == "49586"
-    assert format_amount_digits("4.99") == "499"
+    assert format_amount_digits("4.99") == "0499"
     assert format_amount_digits("1.234,56") == "123456"
     assert format_amount_digits("12,00") == "1200"
     assert format_amount_digits("84.60") == "8460"
     assert format_amount_digits("90") == "9000"
+    assert format_amount_digits("0.50") == "0050"
     assert format_amount_digits(None) == "unknown"
 
 
@@ -65,7 +66,7 @@ def test_build_filename_from_ocr_text():
         html_body=None,
         seed=b"imagebytes",
     )
-    assert re.fullmatch(rf"starbucks-coffee-meal-EUR-499-{_ID}\.pdf", name)
+    assert re.fullmatch(rf"starbucks-coffee-meal-EUR-0499-{_ID}\.pdf", name)
 
 
 def test_build_filename_prefers_non_gbp_amount():
@@ -89,7 +90,7 @@ def test_build_filename_falls_back_to_sender_and_subject():
         html_body=None,
         seed="seed",
     )
-    assert re.fullmatch(rf"british-airways-flight-GBP-499-{_ID}\.pdf", name)
+    assert re.fullmatch(rf"british-airways-flight-GBP-0499-{_ID}\.pdf", name)
 
 
 def test_build_filename_all_unknown():
@@ -119,7 +120,7 @@ def test_build_filename_llm_fields_override_category_and_vendor():
     )
     # vendor/category come from llm_fields; amount/currency still fall back
     # to the OCR regex heuristics since llm_fields left them empty.
-    assert re.fullmatch(rf"mint42-coffee-EUR-860-{_ID}\.pdf", name)
+    assert re.fullmatch(rf"mint42-coffee-EUR-0860-{_ID}\.pdf", name)
 
 
 def test_build_filename_llm_vendor_is_sanitized():
@@ -133,7 +134,7 @@ def test_build_filename_llm_vendor_is_sanitized():
         seed=b"imagebytes",
         llm_fields={"vendor": "Genuss & Harmonie", "category": "coffee", "currency": "EUR", "amount": "8.60"},
     )
-    assert name.startswith("genuss-harmonie-coffee-EUR-860-")
+    assert name.startswith("genuss-harmonie-coffee-EUR-0860-")
 
 
 def test_build_filename_llm_fields_none_behaves_like_no_llm_fields():

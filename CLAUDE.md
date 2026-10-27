@@ -112,8 +112,9 @@ send_with_attachments(smtp_user, smtp_pass, to, subject, body,
   - **PDF attachment** → its embedded text layer (`ocr.py::pdf_text`, pypdf).
   - **rendered email body / no usable text** → fall back to the sender slug +
     the old subject/body amount regex (`extract_amount_and_currency`).
-  - `amount` = digits only, last two always the minor unit (`£495.86`→`49586`,
-    `12,00`→`1200`, bare `90`→`9000`). `currency`: a **non-GBP** amount always
+  - `amount` = digits only, last two always the minor unit, left-zero-padded
+    to at least 4 digits (`£495.86`→`49586`, `12,00`→`1200`, bare `90`→`9000`,
+    `4.99`→`0499`). `currency`: a **non-GBP** amount always
     wins over a GBP one (foreign receipts, Amex/Lloyds statements), tagged with
     the detected code or `EUR` if unresolved; GBP only when it's the sole
     currency; `unknown` when no amount is found at all. `id` = 5 chars of
@@ -128,10 +129,16 @@ send_with_attachments(smtp_user, smtp_pass, to, subject, body,
     *itemized line items*, not just the vendor/document type, e.g. "2x Flat
     White" → `coffee` rather than the keyword matcher's single `meal` bucket
     (which has no `coffee`/`water` split and doesn't contain "flat white" at
-    all). `build_filename`'s `llm_fields` param takes whichever of
-    vendor/category/currency/amount it returns and falls back to the regex
-    path per-field for the rest. A category outside the configured
-    `RECEIPT_CATEGORIES` list is dropped (treated as not returned). Every
+    all). The vendor is capped to 2 words / 20 chars (prompted for a short
+    brand name, e.g. `MINT42` not `Genuss & Harmonie / MINT42`, and
+    truncated as a safety net regardless of what comes back) then run through
+    the same `sanitize_slug` every regex-derived vendor gets — the first live
+    response returned `Genuss & Harmonie` unsanitized straight into a
+    filename before this was added. `build_filename`'s `llm_fields` param
+    takes whichever of vendor/category/currency/amount it returns and falls
+    back to the regex path per-field for the rest. A category outside the
+    configured `RECEIPT_CATEGORIES` list is dropped (treated as not
+    returned). Every
     failure mode (disabled, no key, network, timeout, bad JSON) returns
     `None` — same "never raises into the loop" contract as OCR itself. Only
     called when `doc_text` is non-empty (image/PDF path) — never for a
