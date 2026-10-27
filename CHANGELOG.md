@@ -1,3 +1,9 @@
+## v0.8.2 (2026-10-27)
+
+### Fix
+
+- zero-pad amount to 4 digits and shorten LLM vendor names
+
 ## v0.8.1 (2026-10-27)
 
 ### Fix
