@@ -112,6 +112,47 @@ def test_image_with_trivial_body_skips_body_pdf(monkeypatch):
     assert len(pdfs) == 1
 
 
+def test_llm_classify_result_drives_filename(monkeypatch):
+    _stub_render(monkeypatch)
+    _stub_ocr(monkeypatch, "2x Flat White 6,60\nGESAMT 8,60")
+    monkeypatch.setattr(
+        poller,
+        "classify_with_llm",
+        lambda text: {"vendor": "MINT42", "category": "coffee", "currency": "EUR", "amount": "8.60"},
+    )
+    pdfs = poller.normalize_to_pdfs(
+        subject="receipt",
+        sender="receipts@shop.com",
+        date="",
+        html_body=None,
+        text_body=None,
+        attachments=[("receipt.jpg", "image/jpeg", b"fakejpegbytes")],
+    )
+    assert len(pdfs) == 1
+    assert pdfs[0][0].startswith("mint42-coffee-EUR-860-")
+
+
+def test_llm_classify_not_called_for_body_only_output(monkeypatch):
+    # No image/PDF attachment -> doc_text is "" for the rendered-body output,
+    # so classify_with_llm (which has nothing itemized to read) must not run.
+    _stub_render(monkeypatch)
+    _stub_ocr(monkeypatch)
+
+    def _boom(text):
+        raise AssertionError("classify_with_llm should not be called without doc_text")
+
+    monkeypatch.setattr(poller, "classify_with_llm", _boom)
+    pdfs = poller.normalize_to_pdfs(
+        subject="Taxi receipt EUR 12.00",
+        sender="a@b.com",
+        date="Tue, 25 Aug 2026 09:06:13 +0200",
+        html_body=None,
+        text_body="paid 12 EUR",
+        attachments=[],
+    )
+    assert len(pdfs) == 1
+
+
 def test_pdf_attachment_alone_skips_body_pdf(monkeypatch):
     _stub_render(monkeypatch)
     _stub_ocr(monkeypatch)

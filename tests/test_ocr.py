@@ -123,5 +123,30 @@ def test_ocr_image_returns_empty_on_tesseract_error(monkeypatch):
     assert ocr_image(png, "eng") == ""
 
 
+def test_ocr_image_applies_exif_rotation(monkeypatch):
+    import io
+
+    import pytesseract
+    from PIL import Image
+
+    captured = {}
+    monkeypatch.setattr(
+        pytesseract, "image_to_string", lambda img, lang, timeout: captured.setdefault("size", img.size)
+    )
+
+    # Classic sideways-phone-photo case: pixels stored landscape, EXIF
+    # orientation 6 ("rotate 90 CW to display correctly") says it's really
+    # portrait. Without exif_transpose, Tesseract would see it landscape and
+    # OCR it sideways.
+    img = Image.new("RGB", (100, 50), color="white")
+    exif = img.getexif()
+    exif[274] = 6  # Orientation tag
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", exif=exif)
+
+    ocr_image(buf.getvalue(), "eng")
+    assert captured["size"] == (50, 100)
+
+
 def test_pdf_text_returns_empty_on_broken_pdf():
     assert pdf_text(b"%PDF-1.7 totally broken") == ""

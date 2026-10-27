@@ -76,14 +76,55 @@ HTTP_PORT = int(os.getenv("http_port", "8080"))
 HTTP_UPLOAD_PATH = "/" + os.getenv("http_upload_path", "upload").strip("/")
 HTTP_MAX_UPLOAD_BYTES = int(os.getenv("http_max_upload_bytes", str(25 * 1024 * 1024)))
 # How long the handler waits for the poll-loop thread to render + send before
-# returning 504 (the upload still completes server-side).
-HTTP_RESULT_TIMEOUT = int(os.getenv("http_result_timeout", "60"))
+# returning 504 (the upload still completes server-side). Padded above the
+# bare render+SMTP cost to leave room for an OpenAI classification call
+# (network + a cloud model, not the local-hardware minutes-per-receipt an
+# Ollama vision model would cost — this isn't sized for that).
+HTTP_RESULT_TIMEOUT = int(os.getenv("http_result_timeout", "120"))
 
 # Bearer token for "POST /upload" — a SECRET NAME looked up in Infisical (same
 # indirection as the Gmail creds), not the value itself. Defaults to reusing
 # the Gmail Infisical section.
 key_http_infisical_section = os.getenv("key_http_infisical_section") or key_gmail_infisical_section
 key_http_token = os.getenv("key_http_token", "rec-http-token")
+
+# ---------------------------------------------------------------------------
+# OpenAI-based receipt categorization (optional, on top of OCR)
+# ---------------------------------------------------------------------------
+
+# Off by default. Tesseract/pypdf already extract vendor/amount/currency
+# reasonably well via regex heuristics (see ocr.py); what they can't do is
+# understand what was actually *purchased* - classify_category only pattern-
+# matches a fixed keyword list, so a receipt line has to literally contain one
+# of the listed words to resolve to anything but "misc". When on,
+# llm_classify.py reads the OCR'd text and asks a model to read the itemized
+# line items the way a human would; build_filename prefers its vendor/
+# category/currency/amount over the regex path, field by field, falling back
+# to the existing heuristics for anything it didn't return.
+OPENAI_ENABLED = os.getenv("openai_enabled", "false").lower() in ("true", "1", "t")
+# Verify this against platform.openai.com's current pricing/model list before
+# relying on it — names and what's cheapest shift over time.
+OPENAI_MODEL = os.getenv("openai_model", "gpt-4o-mini")
+OPENAI_TIMEOUT = int(os.getenv("openai_timeout", "30"))
+# Comma-separated and deliberately configurable (the whole point is picking
+# categories finer-grained than OCR's fixed keyword-matched list, e.g.
+# splitting "coffee" and "water" out of a single "meal" bucket).
+RECEIPT_CATEGORIES = [
+    c.strip()
+    for c in os.getenv(
+        "receipt_categories",
+        "coffee,water,meal,taxi,train,flight,hotel,fuel,seats,statement,misc",
+    ).split(",")
+    if c.strip()
+]
+
+# Unlike the Gmail/HTTP secrets below, this is read directly from the process
+# environment rather than Infisical — there's no Infisical entry set up for
+# it. The actual value still never lives in git or a tracked .env: it's
+# delivered via a host-side secrets env_file (same /home/bharani/secrets/
+# convention the bek42/containers repo already uses for e.g. Cloudflare
+# tokens), not the mounted fin-config .env.
+OPENAI_API_KEY = os.getenv("openai_api_key")
 
 # ---------------------------------------------------------------------------
 # OCR (Tesseract) + PDF text extraction — receipt content -> output filename

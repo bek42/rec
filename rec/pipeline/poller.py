@@ -35,6 +35,7 @@ from ..ingest.imap_watcher import (
 )
 from .filenames import build_filename
 from .forwarder import send_with_attachments
+from .llm_classify import classify_with_llm
 from .ocr import ocr_image, pdf_text
 from .pdf import close_browser, render_html_to_pdf, wrap_email_as_html
 
@@ -142,6 +143,7 @@ def normalize_to_pdfs(
             build_filename(
                 doc_text, subject, sender, text_body, html_body, seed,
                 index=i + 1, total=total,
+                llm_fields=classify_with_llm(doc_text) if doc_text else None,
             ),
             pdf_bytes,
         )

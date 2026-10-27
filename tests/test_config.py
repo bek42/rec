@@ -72,7 +72,7 @@ def test_http_channel_defaults(monkeypatch):
     assert config.HTTP_PORT == 8080
     assert config.HTTP_UPLOAD_PATH == "/upload"
     assert config.HTTP_MAX_UPLOAD_BYTES == 25 * 1024 * 1024
-    assert config.HTTP_RESULT_TIMEOUT == 60
+    assert config.HTTP_RESULT_TIMEOUT == 120
     assert config.key_http_token == "rec-http-token"
     # Falls back to the Gmail Infisical section when unset.
     assert config.key_http_infisical_section == "az-keyvault-smtp"
@@ -129,3 +129,41 @@ def test_ocr_enabled_truthy_strings(monkeypatch):
     for value in ("true", "True", "1", "t"):
         config = _reload_config(monkeypatch, ocr_enabled=value)
         assert config.OCR_ENABLED is True, f"expected {value!r} to be truthy"
+
+
+def test_openai_defaults(monkeypatch):
+    for var in (
+        "openai_enabled",
+        "openai_model",
+        "openai_timeout",
+        "receipt_categories",
+        "openai_api_key",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    from rec.core import config
+
+    config = importlib.reload(config)
+    assert config.OPENAI_ENABLED is False
+    assert config.OPENAI_MODEL == "gpt-4o-mini"
+    assert config.OPENAI_TIMEOUT == 30
+    assert config.RECEIPT_CATEGORIES == [
+        "coffee", "water", "meal", "taxi", "train", "flight",
+        "hotel", "fuel", "seats", "statement", "misc",
+    ]
+    assert config.OPENAI_API_KEY is None
+
+
+def test_openai_overrides(monkeypatch):
+    config = _reload_config(
+        monkeypatch,
+        openai_enabled="true",
+        openai_model="gpt-4.1-nano",
+        openai_timeout="15",
+        receipt_categories="coffee, taxi ,misc",
+        openai_api_key="sk-test-123",
+    )
+    assert config.OPENAI_ENABLED is True
+    assert config.OPENAI_MODEL == "gpt-4.1-nano"
+    assert config.OPENAI_TIMEOUT == 15
+    assert config.RECEIPT_CATEGORIES == ["coffee", "taxi", "misc"]
+    assert config.OPENAI_API_KEY == "sk-test-123"

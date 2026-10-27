@@ -104,6 +104,38 @@ def test_build_filename_all_unknown():
     assert re.fullmatch(rf"receipts-misc-unknown-unknown-{_ID}\.pdf", name)
 
 
+def test_build_filename_llm_fields_override_category_and_vendor():
+    # The exact "Flat White" case from the Ollama benchmark: OCR text alone
+    # would classify as "meal" (the only food/drink bucket), but a
+    # llm_fields result reading the itemized line should win.
+    name = build_filename(
+        doc_text="Genuss & Harmonie / MINT42\n2x Flat White 6,60\nGESAMT 8,60",
+        subject="receipt",
+        sender="receipts@shop.com",
+        text_body=None,
+        html_body=None,
+        seed=b"imagebytes",
+        llm_fields={"vendor": "MINT42", "category": "coffee", "currency": None, "amount": None},
+    )
+    # vendor/category come from llm_fields; amount/currency still fall back
+    # to the OCR regex heuristics since llm_fields left them empty.
+    assert re.fullmatch(rf"mint42-coffee-EUR-860-{_ID}\.pdf", name)
+
+
+def test_build_filename_llm_fields_none_behaves_like_no_llm_fields():
+    with_none = build_filename(
+        doc_text="STARBUCKS COFFEE\nTotal 4.99 EUR",
+        subject="x", sender="macrodroid", text_body=None, html_body=None,
+        seed=b"imagebytes", llm_fields=None,
+    )
+    without_arg = build_filename(
+        doc_text="STARBUCKS COFFEE\nTotal 4.99 EUR",
+        subject="x", sender="macrodroid", text_body=None, html_body=None,
+        seed=b"imagebytes",
+    )
+    assert with_none == without_arg
+
+
 def test_build_filename_appends_index_when_multiple():
     kwargs = dict(
         doc_text="",

@@ -105,7 +105,10 @@ send_with_attachments(smtp_user, smtp_pass, to, subject, body,
   **`vendor-category-CUR-amount-id.pdf`** (e.g.
   `starbucks-meal-EUR-499-a3f9k.pdf`). The fields are read from the *document*:
   - **image** → Tesseract OCR (`rec/pipeline/ocr.py::ocr_image`, langs `OCR_LANGS`,
-    default `eng+deu`).
+    default `eng+deu`). EXIF orientation is corrected (`ImageOps.exif_transpose`)
+    before OCR — phone cameras commonly store pixels landscape with the real
+    orientation only in EXIF, and without this a portrait photo held sideways
+    gets OCR'd sideways into near-garbage text.
   - **PDF attachment** → its embedded text layer (`ocr.py::pdf_text`, pypdf).
   - **rendered email body / no usable text** → fall back to the sender slug +
     the old subject/body amount regex (`extract_amount_and_currency`).
@@ -119,6 +122,26 @@ send_with_attachments(smtp_user, smtp_pass, to, subject, body,
     `statement, flight, train, taxi, hotel, fuel, seats, meal`.
   - Any OCR/parse failure returns `""` and degrades to the fallback — it never
     raises into the loop.
+  - **Optional OpenAI pass** (`rec/pipeline/llm_classify.py::classify_with_llm`,
+    off by default, `OPENAI_ENABLED`): when on, the OCR'd `doc_text` is sent to
+    OpenAI (text only — never the image/PDF itself) asking it to read the
+    *itemized line items*, not just the vendor/document type, e.g. "2x Flat
+    White" → `coffee` rather than the keyword matcher's single `meal` bucket
+    (which has no `coffee`/`water` split and doesn't contain "flat white" at
+    all). `build_filename`'s `llm_fields` param takes whichever of
+    vendor/category/currency/amount it returns and falls back to the regex
+    path per-field for the rest. A category outside the configured
+    `RECEIPT_CATEGORIES` list is dropped (treated as not returned). Every
+    failure mode (disabled, no key, network, timeout, bad JSON) returns
+    `None` — same "never raises into the loop" contract as OCR itself. Only
+    called when `doc_text` is non-empty (image/PDF path) — never for a
+    rendered-email-body-only output, which has nothing itemized to read.
+    **Tried local Ollama on the robot first** (both a vision model reading
+    the photo directly, and a small text model reading OCR'd text) — ruled
+    out empirically: a vision model took >15 minutes per receipt and pegged
+    all 4 CPU cores hard enough to degrade rec's own services; even a 1.7B
+    text model misclassified an unambiguous coffee receipt twice in a row
+    despite explicit prompting. The robot is ARM/CPU-only, no GPU.
 - Callers: `process_once()` (email) and `forward_upload()` (HTTP). `forward_upload`
   synthesizes `subject`/`sender`/`date` from the `X-Subject` / `X-Source` headers
   (or falls back to `photo <UTC timestamp>` / `macrodroid` / now).
@@ -143,13 +166,28 @@ send_with_attachments(smtp_user, smtp_pass, to, subject, body,
   (default `upload`, leading/trailing `/` stripped) overrides the single
   accepted `POST` path — set it to an unguessable value when the endpoint sits
   behind a public reverse proxy that skips bot-challenge middleware for one
-  exact path (see "HTTP ingress in production").
+  exact path (see "HTTP ingress in production"). `http_result_timeout`
+  (default `120`s) is how long the HTTP handler waits for the poll-loop
+  thread's result before returning 504 — padded above bare render+SMTP cost
+  to leave room for an OpenAI call, not sized for a local Ollama's
+  minutes-per-receipt (see below). OpenAI knobs: `openai_enabled` (default
+  `false`), `openai_model` (default `gpt-4o-mini` — verify against current
+  OpenAI pricing before trusting the default), `openai_timeout` (`30`s),
+  `receipt_categories` (comma-separated, default
+  `coffee,water,meal,taxi,train,flight,hotel,fuel,seats,statement,misc`).
 - Secrets are **never** in env or `.env`. `rec/core/secrets.py` fetches them from
   **Infisical** via `azkees.InfisicalClient`. `.env` holds only the Infisical
   section name (`az-keyvault-smtp`) and the *secret names* to look up
   (`smtp-username`, `smtp-pwd`, `rec-http-token`). `get_gmail_credentials()` and
   `get_http_token()` raise `RuntimeError` rather than degrade if anything is
   missing. `key_http_infisical_section` defaults to the Gmail section.
+  **Exception**: `openai_api_key` is read directly from the process
+  environment (`OPENAI_API_KEY` config var) rather than through
+  `secrets.py`/Infisical — there's no Infisical entry set up for it yet. In
+  prod it's delivered via a host-side secrets `env_file`
+  (`/home/bharani/secrets/rec-openai-api-key.env`, same convention
+  `bek42/containers` already uses for e.g. Cloudflare tokens), not the
+  mounted fin-config `.env` — the value still never touches git.
 
 ### State and health
 

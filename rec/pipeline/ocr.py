@@ -27,7 +27,7 @@ def ocr_image(data: bytes, langs: str) -> str:
     Tesseract language codes (e.g. "eng+deu"). Returns "" on any failure."""
     try:
         import pytesseract
-        from PIL import Image
+        from PIL import Image, ImageOps
     except Exception:
         log.warning("ocr: pytesseract/Pillow unavailable - skipping OCR")
         return ""
@@ -37,6 +37,11 @@ def ocr_image(data: bytes, langs: str) -> str:
     try:
         with Image.open(io.BytesIO(data)) as img:
             img.load()
+            # Phone cameras commonly store pixels landscape and record the
+            # intended rotation in EXIF rather than physically rotating the
+            # image; without correcting for it, a portrait photo held
+            # sideways gets OCR'd sideways and produces near-garbage text.
+            img = ImageOps.exif_transpose(img) or img
             text = pytesseract.image_to_string(img, lang=langs, timeout=OCR_TIMEOUT)
         return text.strip()
     except Exception as exc:

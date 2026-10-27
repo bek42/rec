@@ -76,20 +76,36 @@ def build_filename(
     seed: bytes | str,
     index: int | None = None,
     total: int = 1,
+    llm_fields: dict | None = None,
 ) -> str:
     """vendor-category-CUR-amount-id.pdf
 
     `doc_text` is the OCR output (images) or extracted text layer (PDF
     attachments); when present it drives every field. Otherwise the fields come
-    from the email sender + subject/body regex. An index suffix is added when one
-    source produces more than one attachment."""
+    from the email sender + subject/body regex. `llm_fields` (see
+    llm_classify.py) is an optional {vendor, category, currency, amount} dict
+    from reading the itemized receipt content with an LLM — whichever of its
+    fields are non-None win over the regex-derived value for that field,
+    independently per field. An index suffix is added when one source produces
+    more than one attachment."""
+    llm_fields = llm_fields or {}
     scrape_texts = [t for t in (doc_text, subject, text_body, html_body) if t]
 
-    vendor = (extract_vendor(doc_text) if doc_text else "") or sender_slug(sender) or "unknown"
-    category = classify_category(" ".join([*scrape_texts, sender or ""]))
-    amount, currency = ocr_amount_and_currency(*scrape_texts)
-    if not amount:
-        amount, currency = extract_amount_and_currency(subject, text_body, html_body)
+    vendor = (
+        llm_fields.get("vendor")
+        or (extract_vendor(doc_text) if doc_text else "")
+        or sender_slug(sender)
+        or "unknown"
+    )
+    category = llm_fields.get("category") or classify_category(
+        " ".join([*scrape_texts, sender or ""])
+    )
+    amount, currency = llm_fields.get("amount"), llm_fields.get("currency")
+    if not amount or not currency:
+        fb_amount, fb_currency = ocr_amount_and_currency(*scrape_texts)
+        if not fb_amount:
+            fb_amount, fb_currency = extract_amount_and_currency(subject, text_body, html_body)
+        amount, currency = amount or fb_amount, currency or fb_currency
 
     base = "-".join(
         [
