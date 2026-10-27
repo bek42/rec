@@ -1,3 +1,9 @@
+## v0.8.1 (2026-10-27)
+
+### Fix
+
+- sanitize the LLM-returned vendor before it hits the filename
+
 ## v0.8.0 (2026-10-27)
 
 ### Feat
