@@ -1,3 +1,9 @@
+## v0.8.3 (2026-10-29)
+
+### Fix
+
+- combine booking-confirmation body + image attachment(s) into one multi-page PDF
+
 ## v0.8.2 (2026-10-27)
 
 ### Fix
