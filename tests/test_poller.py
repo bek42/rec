@@ -69,10 +69,9 @@ def test_octet_stream_non_image_still_skipped(monkeypatch):
 def test_image_with_substantial_body_renders_both(monkeypatch):
     # Booking confirmations (Capital Cars and similar) put the actual receipt
     # - booking ref, pickup/destination, driver, fare - in the HTML body and
-    # attach only an incidental image (a route map) alongside it. Regression
-    # test for the bug where fixing octet-stream sniffing on that same image
-    # caused the real content (the body) to be dropped entirely, leaving only
-    # a near-blank PDF of the map.
+    # attach only an incidental image (a route map) alongside it: one logical
+    # receipt, so it must be ONE multi-page PDF, not two separate PDF
+    # attachments for what the user uploads to one expense line.
     _stub_render(monkeypatch)
     _stub_ocr(monkeypatch)
     booking_html = (
@@ -89,10 +88,35 @@ def test_image_with_substantial_body_renders_both(monkeypatch):
         text_body=None,
         attachments=[("png_284_BOOKING_RECEIPT_66230180.png", "application/octet-stream", _PNG)],
     )
-    assert len(pdfs) == 2
-    rendered = [pdf_bytes.decode() for _, pdf_bytes in pdfs]
-    assert any("Booking Reference" in r for r in rendered)  # the body PDF
-    assert any(base64.b64encode(_PNG).decode() in r for r in rendered)  # the map PDF
+    assert len(pdfs) == 1
+    rendered = pdfs[0][1].decode()
+    assert "Booking Reference" in rendered
+    assert base64.b64encode(_PNG).decode() in rendered
+    assert "page-break-before" in rendered  # map starts on its own page
+
+
+def test_multiple_images_with_body_combine_into_one_pdf(monkeypatch):
+    _stub_render(monkeypatch)
+    _stub_ocr(monkeypatch)
+    booking_html = (
+        "<table><tr><td>Booking Reference</td><td>12345</td></tr>"
+        "<tr><td>Pickup</td><td>Heathrow Terminal 5</td></tr>"
+        "<tr><td>Driver Number</td><td>70</td></tr></table>"
+    )
+    pdfs = poller.normalize_to_pdfs(
+        subject="Thank you for booking",
+        sender="Capital Cars <noreply@capitalcars.example>",
+        date="Thu, 22 Oct 2026 18:37:00 +0100",
+        html_body=booking_html,
+        text_body=None,
+        attachments=[
+            ("map1.png", "image/png", _PNG),
+            ("map2.png", "image/png", _PNG + b"\x00"),
+        ],
+    )
+    assert len(pdfs) == 1
+    rendered = pdfs[0][1].decode()
+    assert rendered.count("page-break-before") == 2  # one per image
 
 
 def test_image_with_trivial_body_skips_body_pdf(monkeypatch):

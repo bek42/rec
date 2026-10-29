@@ -1,3 +1,4 @@
+import base64
 import html as html_lib
 
 from playwright.sync_api import Browser, sync_playwright
@@ -25,16 +26,31 @@ def close_browser() -> None:
 
 
 def wrap_email_as_html(
-    subject: str, sender: str, date: str, html_body: str | None, text_body: str | None
+    subject: str,
+    sender: str,
+    date: str,
+    html_body: str | None,
+    text_body: str | None,
+    images: list[tuple[str, bytes]] | None = None,
 ) -> str:
+    """`images` (content_type, data) pairs are appended after the body, each
+    starting on its own page — used for a booking-confirmation-style email
+    whose real content is the HTML body (booking ref, driver, fare) with an
+    incidental image attachment alongside it (a route map): one logical
+    receipt becomes one multi-page PDF instead of a separate PDF per piece."""
     body = html_body if html_body else f"<pre>{html_lib.escape(text_body or '(no body)')}</pre>"
+    image_pages = "".join(
+        f'<div style="page-break-before:always"><img src="data:{ct};base64,'
+        f'{base64.b64encode(data).decode()}" style="max-width:100%"></div>'
+        for ct, data in (images or [])
+    )
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>body{{font-family:-apple-system,Helvetica,Arial,sans-serif;padding:24px;font-size:14px;line-height:1.5;color:#111}}
 .meta{{color:#555;border-bottom:1px solid #ccc;margin-bottom:16px;padding-bottom:8px}}</style></head>
 <body><div class="meta"><strong>From:</strong> {html_lib.escape(sender)}<br>
 <strong>Date:</strong> {html_lib.escape(date)}<br>
 <strong>Subject:</strong> {html_lib.escape(subject)}</div>
-<div>{body}</div></body></html>"""
+<div>{body}</div>{image_pages}</body></html>"""
 
 
 def render_html_to_pdf(html: str) -> bytes:

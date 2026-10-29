@@ -90,7 +90,14 @@ send_with_attachments(smtp_user, smtp_pass, to, subject, body,
 - `normalize_to_pdfs`: PDF attachments pass through; images
   (`_IMAGE_TYPES` = jpeg/png/heic/webp) are inlined into a minimal `<img>` HTML
   page and rendered by Chromium; the email body is rendered only when there is no
-  PDF/image to carry the receipt; anything else is logged and dropped. A
+  PDF/image to carry the receipt; anything else is logged and dropped. When
+  there's no genuine PDF attachment and the body has real content (see
+  `_body_has_content`) alongside one or more images — a booking confirmation
+  with the receipt in the HTML body and a route map attached, say — all of it
+  renders as **one** multi-page PDF (`pdf.py::wrap_email_as_html`'s `images`
+  param, one `page-break-before` per image) instead of a separate PDF per
+  piece: one logical receipt, one file, so there's one thing to upload to an
+  expense system instead of two. A
   declared `application/octet-stream` (some senders mislabel photo
   attachments this way — observed from Gmail's own forward of a camera
   upload) is first resolved against the attachment's magic bytes via

@@ -111,17 +111,33 @@ def normalize_to_pdfs(
     # (pdf_bytes, doc_text, id_seed) per output.
     outputs: list[tuple[bytes, str, bytes | str]] = []
     has_pdf = any(ct == "application/pdf" for _, ct, _ in attachments)
-    has_image = any(ct in _IMAGE_TYPES for _, ct, _ in attachments)
+    images = [(ct, data) for _, ct, data in attachments if ct in _IMAGE_TYPES]
+    has_image = bool(images)
+    # Booking-confirmation case: a real body (booking ref, driver, fare) with
+    # one or more incidental image attachments (a route map) alongside it is
+    # one logical receipt - combine into a single multi-page PDF rather than
+    # a separate PDF per piece. Only when there's no genuine PDF attachment;
+    # that always stays its own untouched output.
+    combine_with_body = not has_pdf and has_image and _body_has_content(html_body, text_body)
 
     if has_pdf:
         for _, ct, data in attachments:
             if ct == "application/pdf":
                 outputs.append((data, pdf_text(data), data))
-    elif not has_image or _body_has_content(html_body, text_body):
+    elif combine_with_body:
+        html = wrap_email_as_html(subject, sender, date, html_body, text_body, images=images)
+        doc_text = (
+            " ".join(t for _, data in images if (t := ocr_image(data, OCR_LANGS))) if OCR_ENABLED else ""
+        )
+        seed = images[0][1] if len(images) == 1 else b"".join(data for _, data in images)
+        outputs.append((render_html_to_pdf(html), doc_text, seed))
+    elif not has_image:
         html = wrap_email_as_html(subject, sender, date, html_body, text_body)
         outputs.append((render_html_to_pdf(html), "", f"{subject}|{sender}"))
 
     for fn, ct, data in attachments:
+        if combine_with_body and ct in _IMAGE_TYPES:
+            continue  # already folded into the combined render above
         if ct in _IMAGE_TYPES:
             b64 = base64.b64encode(data).decode()
             img_html = (
