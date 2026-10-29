@@ -67,16 +67,24 @@ def _matches_subject_trigger(imap: imaplib.IMAP4_SSL, uid: bytes) -> bool:
     return SUBJECT_TRIGGER in header
 
 
-def list_candidate_uids(imap: imaplib.IMAP4_SSL) -> list[bytes]:
+def list_candidate_uids(imap: imaplib.IMAP4_SSL) -> tuple[list[bytes], set[bytes]]:
     """Two ways into the forward pipeline: labelled GMAIL_LABEL_IN, or any
     Inbox message whose subject contains SUBJECT_TRIGGER - a manual trigger
     for mail that's awkward to label directly. Both feed the same
     dedup/forward logic in poller.py, so a message matching both is still
-    only forwarded once."""
-    uids = set(_gm_raw_search(imap, f"label:{GMAIL_LABEL_IN}"))
+    only forwarded once.
+
+    The label-matched set is returned separately (not just folded into the
+    combined list) so process_once() can tell a message the user has just
+    (re)labelled GMAIL_LABEL_IN apart from one that merely still has the
+    SUBJECT_TRIGGER text sitting in its subject forever - the former is a
+    deliberate, explicit action (including re-labelling something already in
+    the dedup state, to force a reprocess), the latter is not."""
+    label_matched = set(_gm_raw_search(imap, f"label:{GMAIL_LABEL_IN}"))
+    uids = set(label_matched)
     subject_hits = _gm_raw_search(imap, f'in:inbox subject:"{SUBJECT_TRIGGER}"')
     uids.update(uid for uid in subject_hits if _matches_subject_trigger(imap, uid))
-    return sorted(uids, key=int)
+    return sorted(uids, key=int), label_matched
 
 
 def fetch_gm_msgid(imap: imaplib.IMAP4_SSL, uid: bytes) -> str | None:

@@ -23,7 +23,7 @@ from ..core.config import (
 )
 from ..core.logging_setup import log
 from ..core.secrets import get_gmail_credentials
-from ..core.state import already_forwarded, load_state, mark_forwarded, save_state
+from ..core.state import already_forwarded, forwarded_within, load_state, mark_forwarded, save_state
 from ..ingest.http_server import HttpUpload, build_server, sniff_image_type
 from ..ingest.imap_watcher import (
     connect,
@@ -172,10 +172,31 @@ def process_once() -> None:
     state = load_state()
     imap = connect(username, app_password)
     try:
-        for uid in list_candidate_uids(imap):
+        uids, relabeled_uids = list_candidate_uids(imap)
+        for uid in uids:
             gm_msgid = fetch_gm_msgid(imap, uid)
-            if not gm_msgid or already_forwarded(state, gm_msgid):
+            if not gm_msgid:
                 continue
+            if already_forwarded(state, gm_msgid):
+                # A message the user has (re)labelled GMAIL_LABEL_IN is a
+                # deliberate "process this" request even if it's already in
+                # the dedup state (e.g. relabelling something rec already
+                # forwarded, to force a reprocess) - unless it was forwarded
+                # within the last couple of poll cycles, in which case this
+                # is more likely the crash-recovery race move_to_out_label's
+                # docstring describes (forwarded, then crashed before the
+                # label STORE ran) and skipping is the safe call.
+                is_deliberate_retry = uid in relabeled_uids and not forwarded_within(
+                    state, gm_msgid, 2 * POLL_SECONDS
+                )
+                if not is_deliberate_retry:
+                    continue
+                log.info(
+                    "poller: '%s' relabeled '%s' after being forwarded on %s - reprocessing by request",
+                    gm_msgid,
+                    GMAIL_LABEL_IN,
+                    state[gm_msgid].get("forwarded_at"),
+                )
 
             msg = fetch_message(imap, uid)
             if msg is None:

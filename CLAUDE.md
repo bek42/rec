@@ -168,7 +168,17 @@ send_with_attachments(smtp_user, smtp_pass, to, subject, body,
 - Candidate messages = union of two Gmail `X-GM-RAW` searches:
   `label:<GMAIL_LABEL_IN>` and `in:inbox subject:"<SUBJECT_TRIGGER>"` (default
   `[rec]`, which is also the prefix `rec` puts on everything it forwards).
-- Dedup key is Gmail's cross-mailbox-stable `X-GM-MSGID`.
+- Dedup key is Gmail's cross-mailbox-stable `X-GM-MSGID` — stable across
+  relabeling, so moving a message back from `GMAIL_LABEL_OUT` to
+  `GMAIL_LABEL_IN` to force a reprocess does **not** by itself bypass dedup.
+  `list_candidate_uids` separately returns which candidate UIDs matched via
+  the label search specifically (vs. only the subject-trigger search);
+  `process_once()` treats a labelled-and-already-forwarded message as a
+  deliberate reprocess request **unless** `state.forwarded_within(...,
+  2*POLL_SECONDS)` says it was forwarded within the last couple of poll
+  cycles — that recent case is instead the crash-recovery race
+  `move_to_out_label`'s docstring describes (forwarded, then crashed before
+  the label STORE ran), where reprocessing would double-send.
 
 ### Config and secrets
 

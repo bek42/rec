@@ -85,11 +85,12 @@ def test_list_candidate_uids_searches_by_label_and_subject_trigger():
         _fetch_response(b"Subject: [rec] Taxi receipt\r\n"),  # uid 3 header check
     ]
 
-    uids = list_candidate_uids(imap)
+    uids, labeled = list_candidate_uids(imap)
 
     imap.uid.assert_any_call("search", None, "X-GM-RAW", '"label:Receipts/In"')
     imap.uid.assert_any_call("search", None, "X-GM-RAW", '"in:inbox subject:\\"[rec]\\""')
     assert uids == [b"1", b"2", b"3"]
+    assert labeled == {b"1", b"2"}  # only the label search's hits, not uid 3
 
 
 def test_list_candidate_uids_filters_out_gmail_tokenized_false_positive():
@@ -100,9 +101,10 @@ def test_list_candidate_uids_filters_out_gmail_tokenized_false_positive():
         _fetch_response(b"Subject: Rec/Freestyle taster confirmation\r\n"),  # no literal "[rec]"
     ]
 
-    uids = list_candidate_uids(imap)
+    uids, labeled = list_candidate_uids(imap)
 
     assert uids == [b"1"]
+    assert labeled == {b"1"}
 
 
 def test_list_candidate_uids_filters_out_auto_replies():
@@ -116,13 +118,14 @@ def test_list_candidate_uids_filters_out_auto_replies():
         ),
     ]
 
-    uids = list_candidate_uids(imap)
+    uids, labeled = list_candidate_uids(imap)
 
     assert uids == [b"1"]
+    assert labeled == {b"1"}
 
 
 def test_list_candidate_uids_handles_no_matches():
     imap = MagicMock()
     imap.uid.return_value = ("OK", [None])
 
-    assert list_candidate_uids(imap) == []
+    assert list_candidate_uids(imap) == ([], set())
