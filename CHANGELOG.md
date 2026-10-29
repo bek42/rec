@@ -1,3 +1,9 @@
+## v0.9.0 (2026-10-29)
+
+### Feat
+
+- relabeling GMAIL_LABEL_IN forces a reprocess instead of silently no-opping
+
 ## v0.8.3 (2026-10-29)
 
 ### Fix
