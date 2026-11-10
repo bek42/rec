@@ -55,6 +55,8 @@ def _effective_content_type(content_type: str, data: bytes) -> str:
     receipt photo doesn't silently degrade to a near-empty email-body PDF."""
     if content_type in _IMAGE_TYPES or content_type == "application/pdf":
         return content_type
+    if data.lstrip()[:5] == b"%PDF-":
+        return "application/pdf"
     sniffed = sniff_image_type(data)
     return sniffed if sniffed in _SNIFFABLE_IMAGE_TYPES else content_type
 

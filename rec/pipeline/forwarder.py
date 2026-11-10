@@ -5,6 +5,11 @@ from ..core.config import SMTP_HOST, SMTP_PORT
 from ..core.logging_setup import log
 
 
+def _one_line(value: str) -> str:
+    """Collapse CR/LF and other whitespace runs so the value is header-safe."""
+    return " ".join(value.split())
+
+
 def send_with_attachments(
     smtp_username: str,
     smtp_password: str,
@@ -13,6 +18,7 @@ def send_with_attachments(
     body: str,
     attachments: list[tuple[str, bytes]],
 ) -> None:
+    subject = _one_line(subject)
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = smtp_username
@@ -20,7 +26,7 @@ def send_with_attachments(
     msg.set_content(body)
 
     for filename, pdf_bytes in attachments:
-        msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=filename)
+        msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf", filename=_one_line(filename))
 
     # Same Gmail account/App Password serves both IMAP watch and SMTP relay.
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:

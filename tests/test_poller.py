@@ -340,3 +340,14 @@ def test_drain_http_queue_reports_error(tmp_path, monkeypatch):
     outcome, detail = job.result_q.get_nowait()
     assert outcome == "error"
     assert "smtp down" in detail
+
+
+def test_octet_stream_pdf_is_sniffed_and_passed_through(monkeypatch):
+    monkeypatch.setattr(poller, "pdf_text", lambda d: "")
+    monkeypatch.setattr(poller, "classify_with_llm", lambda t: None)
+    monkeypatch.setattr(poller, "render_html_to_pdf", lambda h: b"%PDF-body")
+    out = poller.normalize_to_pdfs(
+        "s", "a@b.com", "d", None, None,
+        [("receipt.pdf", "application/octet-stream", b"%PDF-1.4 data")],
+    )
+    assert [d for _, d in out] == [b"%PDF-1.4 data"]
