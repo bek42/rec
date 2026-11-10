@@ -1,3 +1,9 @@
+## v0.9.1 (2026-11-10)
+
+### Fix
+
+- collapse newlines in subject/filenames and sniff mislabeled PDF attachments
+
 ## v0.9.0 (2026-10-29)
 
 ### Feat
